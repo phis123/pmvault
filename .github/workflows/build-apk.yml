@@ -141,7 +141,16 @@ jobs:
             ls -l upload-keystore.p12
           fi
 
+      - name: Flutter 预热（首次要下载大量引擎/依赖，单独限时便于定位）
+        timeout-minutes: 12
+        continue-on-error: true
+        run: |
+          export PATH="$HOME/flutter/$FLUTTER_VERSION/bin:$PATH"
+          mkdir -p diagnose
+          timeout 600 flutter precache --android --no-ios 2>&1 | tee diagnose/precache.log || echo "预热超时或失败（继续）"
+
       - name: 构建 APK
+        timeout-minutes: 45
         env:
           FLET_ANDROID_SIGNING_KEY_STORE: ${{ github.workspace }}/upload-keystore.p12
           FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -157,32 +166,49 @@ jobs:
             unset FLET_ANDROID_SIGNING_KEY_STORE FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD \
                   FLET_ANDROID_SIGNING_KEY_PASSWORD FLET_ANDROID_SIGNING_KEY_ALIAS
           fi
-          # 把完整输出同时写进文件（GitHub 的日志收集在本仓库拿不到，改用 artifact 传日志）
-          set -o pipefail
           mkdir -p diagnose
-          flet build apk --verbose 2>&1 | tee diagnose/build.log
+          # 用 timeout 给构建设上限：保证后面收集诊断的步骤一定能执行到
+          set +e
+          timeout 2400 flet build apk --verbose 2>&1 | tee diagnose/build.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "构建退出码: $code"
+          echo "$code" > diagnose/build_exit_code.txt
+          if [ "$code" -ne 0 ]; then
+            echo "::error::flet build 失败，退出码 $code（124 表示超时）"
+            exit "$code"
+          fi
 
       - name: 构建失败时收集环境诊断
-        if: failure()
+        if: failure() || cancelled()
+        timeout-minutes: 8
+        continue-on-error: true
         run: |
           mkdir -p diagnose
           {
+            echo "=== 退出码 ==="; cat diagnose/build_exit_code.txt 2>/dev/null || echo "(无)"
+            echo
             echo "=== 环境 ==="
             echo "JAVA_HOME=$JAVA_HOME"
             echo "ANDROID_HOME=$ANDROID_HOME"
-            env | grep -E '^(FLET|JAVA|ANDROID|PATH)=' | sed 's/=.*KEY.*/=***/' || true
+            echo "PATH=$PATH"
             echo
             echo "=== java ==="; "$HOME/java/$JDK_DIR/bin/java" -version 2>&1 || true
             echo "=== flutter ==="; "$HOME/flutter/$FLUTTER_VERSION/bin/flutter" --version 2>&1 || true
-            echo "=== sdkmanager 包列表 ==="
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>&1 | head -40 || true
+            echo "=== flet ==="; flet --version 2>&1 || true
+            echo "=== sdkmanager 已装包 ==="
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>&1 | head -30 || true
             echo
-            echo "=== flet 版本 ==="; flet --version 2>&1 || true
-            echo "=== python 包 ==="; pip list 2>&1 | grep -Ei 'flet|crypt|cffi|pyinstaller' || true
+            echo "=== python 相关包 ==="; pip list 2>&1 | grep -Ei 'flet|crypt|cffi|numpy|serious' || true
             echo
-            echo "=== 仓库文件 ==="; find . -maxdepth 3 -not -path './.git/*' -not -path './diagnose/*' | sort | head -60
+            echo "=== 仓库文件树 ==="
+            find . -maxdepth 3 -not -path './.git/*' -not -path './diagnose/*' -not -path './build/*' | sort | head -50
+            echo
+            echo "=== build 目录（若有）==="
+            find build -maxdepth 3 -type d 2>/dev/null | head -30 || true
           } > diagnose/env.log 2>&1
-          tail -100 diagnose/env.log
+          echo "=== diagnose 目录内容 ==="; ls -la diagnose/
+          tail -c 4000 diagnose/build.log 2>/dev/null || true
 
       - name: 上传诊断日志（无论成败）
         if: always()
