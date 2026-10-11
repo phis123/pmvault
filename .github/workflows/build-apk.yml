@@ -1,7 +1,12 @@
 name: Build Android APK
 
-# 在 GitHub 的机器上构建签名 APK（本机不需要 Android SDK / JDK）
-# 手动触发，或推送到 main 时自动构建
+# 在 GitHub 的机器上构建签名 APK。
+#
+# 关键点：flet build 在缺 Flutter/JDK/Android SDK 时会**交互式询问 y/n**，
+# CI 里没有标准输入会直接 EOFError 失败。所以这里先把三样都装到它认的位置：
+#   - JDK 17       → JAVA_HOME（Flet 认 JAVA_HOME，且要求主版本 17）
+#   - Flutter      → ~/flutter/3.44.8（Flet 写死找这个目录）
+#   - Android SDK  → ANDROID_HOME 下的 cmdline-tools/latest/bin
 
 on:
   workflow_dispatch:
@@ -12,10 +17,16 @@ on:
       - "pyproject.toml"
       - ".github/workflows/build-apk.yml"
 
+env:
+  FLUTTER_VERSION: "3.44.8"
+  JDK_DIR: "17.0.13+11"
+  ANDROID_HOME: ${{ github.workspace }}/android-sdk
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: 取代码
@@ -26,10 +37,81 @@ jobs:
         with:
           python-version: "3.12"
 
+      # ---------------------------------------------------------------- 缓存
+      - name: 缓存 Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter/${{ env.FLUTTER_VERSION }}
+          key: flutter-${{ env.FLUTTER_VERSION }}
+
+      - name: 缓存 JDK
+        uses: actions/cache@v4
+        with:
+          path: ~/java/${{ env.JDK_DIR }}
+          key: jdk-${{ env.JDK_DIR }}
+
+      - name: 缓存 Android SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/android-sdk
+          key: android-sdk-v1
+
+      # ---------------------------------------------------------------- 依赖
+      - name: 安装 Flutter SDK
+        run: |
+          DIR="$HOME/flutter/$FLUTTER_VERSION"
+          if [ -x "$DIR/bin/flutter" ]; then
+            echo "Flutter 已缓存，跳过安装"
+          else
+            mkdir -p "$HOME/flutter"
+            URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
+            echo "下载 $URL"
+            curl -fL --retry 3 -o /tmp/flutter.tar.xz "$URL"
+            tar -xJf /tmp/flutter.tar.xz -C "$HOME/flutter"
+            mv "$HOME/flutter/flutter" "$DIR"
+            rm -f /tmp/flutter.tar.xz
+          fi
+          "$DIR/bin/flutter" --version
+
+      - name: 安装 JDK 17
+        run: |
+          DIR="$HOME/java/$JDK_DIR"
+          if [ -x "$DIR/bin/javac" ]; then
+            echo "JDK 已缓存，跳过安装"
+          else
+            mkdir -p "$HOME/java"
+            URL="https://api.adoptium.net/v3/binary/version/jdk-${JDK_DIR//+/%2B}/linux/x64/jdk/hotspot/normal/eclipse"
+            echo "下载 $URL"
+            curl -fL --retry 3 -o /tmp/jdk.tar.gz "$URL"
+            mkdir -p /tmp/jdkx
+            tar -xzf /tmp/jdk.tar.gz -C /tmp/jdkx
+            inner=$(ls /tmp/jdkx | head -1)
+            mv "/tmp/jdkx/$inner" "$DIR"
+            rm -rf /tmp/jdk.tar.gz /tmp/jdkx
+          fi
+          export JAVA_HOME="$DIR"
+          "$DIR/bin/javac" -version
+
+      - name: 安装 Android SDK 命令行工具
+        run: |
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "Android SDK 已缓存，跳过安装"
+          else
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            curl -fL --retry 3 -o /tmp/cmdline.zip "$URL"
+            unzip -q /tmp/cmdline.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+            rm -f /tmp/cmdline.zip
+          fi
+          export JAVA_HOME="$HOME/java/$JDK_DIR"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
+
       - name: 装 Flet CLI 与依赖
         run: |
           python -m pip install --upgrade pip
-          pip install "flet[all]==1.0.4" cryptography==48.0.0 pytest
+          pip install "flet[all]==1.0.4" cryptography==48.0.0
 
       - name: 自检：加密内核与界面能否导入
         env:
@@ -55,12 +137,16 @@ jobs:
           FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          FLET_CLI_SKIP_FLUTTER_DOCTOR: "1"
         run: |
+          export JAVA_HOME="$HOME/java/$JDK_DIR"
+          export PATH="$HOME/flutter/$FLUTTER_VERSION/bin:$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "flutter=$(command -v flutter)"
+          echo "ANDROID_HOME=$ANDROID_HOME"
           if [ ! -f upload-keystore.p12 ]; then
-            unset FLET_ANDROID_SIGNING_KEY_STORE
-            unset FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD
-            unset FLET_ANDROID_SIGNING_KEY_PASSWORD
-            unset FLET_ANDROID_SIGNING_KEY_ALIAS
+            unset FLET_ANDROID_SIGNING_KEY_STORE FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD \
+                  FLET_ANDROID_SIGNING_KEY_PASSWORD FLET_ANDROID_SIGNING_KEY_ALIAS
           fi
           flet build apk --verbose
 
