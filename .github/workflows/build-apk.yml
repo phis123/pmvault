@@ -1,0 +1,87 @@
+name: Build Android APK
+
+# 在 GitHub 的机器上构建签名 APK（本机不需要 Android SDK / JDK）
+# 手动触发，或推送到 main 时自动构建
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "pyproject.toml"
+      - ".github/workflows/build-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 装 Flet CLI 与依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install "flet[all]==1.0.4" cryptography==48.0.0 pytest
+
+      - name: 自检：加密内核与界面能否导入
+        run: |
+          export PYTHONPATH="$PWD/app"
+          python -c "import pm_core, pm_android; print('导入 OK:', pm_android.APP_TITLE)"
+          python -c "
+          import os, tempfile
+          from pm_core import Vault, Credential
+          d = tempfile.mkdtemp()
+          p = os.path.join(d, 'v.pmvault')
+          v = Vault.create(p, 'Selftest-1!Strong')
+          v.add(Credential(name='GitHub', username='alice', password='pw-1'))
+          v2 = Vault.unlock(p, 'Selftest-1!Strong')
+          raw = open(p, 'rb').read()
+          assert v2.all()[0].password == 'pw-1'
+          assert b'GitHub' not in raw and b'pw-1' not in raw
+          print('核心层自检通过：加解密往返正常、磁盘无明文')
+          "
+
+      - name: 还原签名密钥（从 Secrets）
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::未配置 KEYSTORE_BASE64，将使用调试签名（能装但不适合长期升级）"
+          else
+            echo "$KEYSTORE_BASE64" | base64 -d > upload-keystore.p12
+            ls -l upload-keystore.p12
+          fi
+
+      - name: 构建 APK
+        env:
+          FLET_ANDROID_SIGNING_KEY_STORE: ${{ github.workspace }}/upload-keystore.p12
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ ! -f upload-keystore.p12 ]; then
+            unset FLET_ANDROID_SIGNING_KEY_STORE
+            unset FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD
+            unset FLET_ANDROID_SIGNING_KEY_PASSWORD
+            unset FLET_ANDROID_SIGNING_KEY_ALIAS
+          fi
+          flet build apk --verbose
+
+      - name: 列出产物
+        run: find build -name "*.apk" -exec ls -lh {} \;
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmvault-apk
+          path: build/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
