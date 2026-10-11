@@ -92,11 +92,12 @@ jobs:
           export JAVA_HOME="$DIR"
           "$DIR/bin/javac" -version
 
-      - name: 安装 Android SDK 命令行工具
+      - name: 安装 Android SDK（含 Flet 要求的基础包）
         run: |
-          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "Android SDK 已缓存，跳过安装"
-          else
+          export JAVA_HOME="$HOME/java/$JDK_DIR"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          SDKMAN="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMAN" ]; then
             mkdir -p "$ANDROID_HOME/cmdline-tools"
             URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
             curl -fL --retry 3 -o /tmp/cmdline.zip "$URL"
@@ -104,9 +105,13 @@ jobs:
             mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
             rm -f /tmp/cmdline.zip
           fi
-          export JAVA_HOME="$HOME/java/$JDK_DIR"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
+          # Flet 会检查这几个目录是否存在，缺一个就判定 SDK 不完整并弹交互提示
+          yes | "$SDKMAN" --licenses > /dev/null || true
+          "$SDKMAN" "platform-tools" "platforms;android-35" "build-tools;34.0.0"
+          echo "--- 校验 Flet 要求的路径 ---"
+          for p in cmdline-tools/latest/bin/sdkmanager platform-tools "platforms/android-35" "build-tools/34.0.0"; do
+            if [ -e "$ANDROID_HOME/$p" ]; then echo "  OK   $p"; else echo "  缺失 $p"; exit 1; fi
+          done
 
       - name: 装 Flet CLI 与依赖
         run: |
@@ -119,6 +124,11 @@ jobs:
         run: |
           python -c "import pm_core, pm_android; print('导入 OK:', pm_android.APP_TITLE)"
           python -c "import os,tempfile;from pm_core import Vault,Credential;d=tempfile.mkdtemp();p=os.path.join(d,'v.pmvault');v=Vault.create(p,'Selftest-1!Strong');v.add(Credential(name='GitHub',username='alice',password='pw-1'));v2=Vault.unlock(p,'Selftest-1!Strong');raw=open(p,'rb').read();assert v2.all()[0].password=='pw-1';assert b'GitHub' not in raw and b'pw-1' not in raw;print('核心层自检通过：加解密往返正常、磁盘无明文')"
+
+      - name: 预检：确认 Flet 不会再弹交互提示
+        env:
+          PYTHONPATH: ${{ github.workspace }}/app
+        run: python "${{ github.workspace }}/app/pm_android/precheck_ci.py"
 
       - name: 还原签名密钥（从 Secrets）
         env:
