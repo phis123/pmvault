@@ -11,10 +11,13 @@ import os
 from typing import Any, Dict, Optional
 
 from pm_core import Vault, crypto
+from pm_core.sorting import DEFAULT_SORT_DESC, DEFAULT_SORT_KEY, normalize_sort_key
 
 APP_TITLE = "账号密码管理"
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
+    "sort_key": DEFAULT_SORT_KEY,
+    "sort_desc": DEFAULT_SORT_DESC,
     "auto_lock_minutes": 5,
     "clipboard_clear_seconds": 20,
     "reveal_seconds": 10,
@@ -103,6 +106,19 @@ class AppState:
 
     def generator_defaults(self) -> Dict[str, Any]:
         return dict(self.settings.get("generator") or DEFAULT_SETTINGS["generator"])
+
+    # ------------------------------------------------------------ 排序
+    def sort_key(self) -> str:
+        return normalize_sort_key(self.settings.get("sort_key"))
+
+    def sort_desc(self) -> bool:
+        return bool(self.settings.get("sort_desc", DEFAULT_SORT_DESC))
+
+    def set_sort(self, key: str, desc: bool) -> None:
+        """记住排序选择：只写 settings.json，不碰加密库。"""
+        self.settings["sort_key"] = normalize_sort_key(key)
+        self.settings["sort_desc"] = bool(desc)
+        save_settings(self.settings)
 
     # ------------------------------------------------------------ 锁定
     def lock(self) -> None:

@@ -15,7 +15,7 @@ import os
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import crypto
+from . import crypto, sorting
 from .models import Credential, VaultHeader, FORMAT_NAME, FORMAT_VERSION, now_iso
 
 # 恢复密钥用固定强度较低的 KDF：恢复密钥本身是高熵随机串，不需要抗字典攻击
@@ -183,8 +183,11 @@ class Vault:
     def get(self, cred_id: str) -> Optional[Credential]:
         return next((c for c in self.credentials if c.id == cred_id), None)
 
-    def search(self, query: str) -> List[Credential]:
-        return [c for c in self.credentials if c.matches(query)]
+    def search(self, query: str, sort_key: str = sorting.DEFAULT_SORT_KEY,
+               sort_desc: bool = sorting.DEFAULT_SORT_DESC) -> List[Credential]:
+        """按查询过滤后排序；默认创建时间递增（与旧版的插入顺序等价）。"""
+        hits = [c for c in self.credentials if c.matches(query)]
+        return sorting.sort_credentials(hits, sort_key, sort_desc)
 
     def all(self) -> List[Credential]:
         return sorted(self.credentials, key=lambda c: c.name.lower())

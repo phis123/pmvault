@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 import flet as ft
 
-from pm_core import Credential, crypto
+from pm_core import Credential, crypto, sorting
 
 from .. import dialogs as dlg
 from ..state import APP_TITLE
@@ -37,6 +37,13 @@ class VaultScreen:
             self.list_view,
         ], expand=True, visible=True)
 
+        # 排序入口：图标固定在搜索框右侧，当前排列方式写在底部状态栏
+        self.sort_btn = ft.IconButton(
+            icon=getattr(ft.Icons, "SORT", None) or ft.Icons.SWAP_VERT,
+            tooltip="排序方式",
+            on_click=lambda _e: self.open_sort(),
+        )
+
     # ================================================================ 顶层
     def build(self) -> ft.Control:
         menu = ft.PopupMenuButton(
@@ -60,6 +67,7 @@ class VaultScreen:
                     menu,
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Row([self.search,
+                        self.sort_btn,
                         ft.IconButton(ft.Icons.ADD, tooltip="新增条目", on_click=lambda _e: self.add_entry())]),
             ], spacing=6),
             padding=ft.Padding.only(left=12, right=6, top=8, bottom=6),
@@ -82,7 +90,8 @@ class VaultScreen:
         if vault is None:
             return
         query = (self.search.value or "").strip()
-        entries = vault.search(query)
+        entries = vault.search(query, sort_key=self.state.sort_key(), sort_desc=self.state.sort_desc())
+        self.sort_btn.tooltip = "排序方式：" + sorting.sort_caption(self.state.sort_key(), self.state.sort_desc())
         self.list_view.controls.clear()
 
         if not entries:
@@ -95,7 +104,8 @@ class VaultScreen:
 
         summary = self.state.summary()
         self.status.value = (f"条目 {summary['count']} · 版本 v{summary['revision']} · KDF {summary['kdf']} · "
-                             f"弱密码 {summary['weak']} · 过期 {summary['old']}")
+                             f"弱密码 {summary['weak']} · 过期 {summary['old']} · "
+                             f"排序 {sorting.sort_label(self.state.sort_key(), self.state.sort_desc())}")
         self.show_list()
         page.update()
 
@@ -240,6 +250,14 @@ class VaultScreen:
         self.open_detail(cred)
 
     # ================================================================ 动作
+    def open_sort(self) -> None:
+        dlg.sort_dialog(self.state.page, self.state.sort_key(), self.state.sort_desc(),
+                        on_apply=self._apply_sort)
+
+    def _apply_sort(self, key: str, desc: bool) -> None:
+        self.state.set_sort(key, desc)
+        self.refresh_list()
+
     def add_entry(self) -> None:
         dlg.credential_dialog(self.state.page, self.state.generator_defaults(), None,
                              on_save=self._save_new)
