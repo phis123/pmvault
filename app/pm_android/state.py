@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pm_core import Vault, crypto
 from pm_core.sorting import DEFAULT_SORT_DESC, DEFAULT_SORT_KEY, normalize_sort_key
@@ -128,6 +128,34 @@ class AppState:
         self.selected_id = None
         self.revealed.clear()
         self.sync_passphrase = ""
+
+    # ------------------------------------------------------------ 重置（破坏性）
+    def reset_vault(self) -> List[str]:
+        """删掉本地保险库文件，回到「还没有保险库」的初始状态。
+
+        ⚠️ **这是不可恢复的破坏性操作**：旧文件（含它的 .bak）被直接删除，
+        里面的条目再也找不回来，也不存在可以事后解密的残片。
+
+        安全设计上**不存在「绕过主密码」的合法途径**——本方法只做删除，
+        不尝试解密、不写任何后门。忘记主密码时只有两条路：
+          ① 用当初抄写的恢复密钥打开（Vault.unlock_with_recovery_key）；
+          ② 由用户明确确认后删掉旧库、从头再来（就是这里）。
+
+        文件本来就不存在时视为「已经是重置状态」，不抛异常（幂等）。
+        返回被删除的文件路径列表，便于调用方/测试核对。
+        """
+        removed: List[str] = []
+        for path in (vault_path(), vault_path() + ".bak"):
+            if os.path.exists(path):
+                os.remove(path)
+                removed.append(path)
+        if self.vault is not None:
+            self.vault.lock()
+        self.vault = None
+        self.selected_id = None
+        self.revealed.clear()
+        self.pending_recovery_key = None
+        return removed
 
     # ------------------------------------------------------------ 统计
     def markers(self, cred) -> list:

@@ -1,0 +1,7 @@
+# 直接依赖（版本锁定，供 bootstrap 或 pip --target 安装）
+# 桌面版运行与打包所需
+cryptography==48.0.0
+# 测试
+pytest==9.1.1
+# 打包 exe
+pyinstaller==6.22.3

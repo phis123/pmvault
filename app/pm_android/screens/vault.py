@@ -19,9 +19,10 @@ FAINT = "#98a2b3"
 
 
 class VaultScreen:
-    def __init__(self, state: "AppState", on_lock) -> None:
+    def __init__(self, state: "AppState", on_lock, on_edit=None) -> None:
         self.state = state
         self.on_lock = on_lock
+        self.on_edit = on_edit          # 打开整页编辑器：on_edit(cred_or_None, on_saved)
 
         self.search = ft.TextField(
             hint_text="搜索名称 / 用户名 / 网址 / 标签",
@@ -66,8 +67,7 @@ class VaultScreen:
                     ft.Text(APP_TITLE, size=17, weight=ft.FontWeight.BOLD),
                     menu,
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([self.search,
-                        self.sort_btn,
+                ft.Row([self.search, self.sort_btn,
                         ft.IconButton(ft.Icons.ADD, tooltip="新增条目", on_click=lambda _e: self.add_entry())]),
             ], spacing=6),
             padding=ft.Padding.only(left=12, right=6, top=8, bottom=6),
@@ -84,7 +84,12 @@ class VaultScreen:
         ], spacing=0, expand=True)
 
     # ================================================================ 列表
-    def refresh_list(self) -> None:
+    def refresh_list(self, keep_view: bool = False) -> None:
+        """刷新列表。
+
+        keep_view=True 时保留当前的详情页视图（用于"保存后回到详情"这类场景），
+        否则默认切回列表。
+        """
         page = self.state.page
         vault = self.state.vault
         if vault is None:
@@ -106,7 +111,8 @@ class VaultScreen:
         self.status.value = (f"条目 {summary['count']} · 版本 v{summary['revision']} · KDF {summary['kdf']} · "
                              f"弱密码 {summary['weak']} · 过期 {summary['old']} · "
                              f"排序 {sorting.sort_label(self.state.sort_key(), self.state.sort_desc())}")
-        self.show_list()
+        if not (keep_view and self.detail_panel.visible):
+            self.show_list()
         page.update()
 
     def _entry_tile(self, cred: Credential) -> ft.Control:
@@ -242,6 +248,19 @@ class VaultScreen:
         self.state.revealed.clear()
         self.refresh_list()
 
+    def handle_back(self) -> bool:
+        """返回键：有弹层先关弹层；详情页回列表；列表页返回 False（交给系统）。"""
+        try:
+            if self.state.page.overlay:
+                self.state.page.pop_dialog()
+                return True
+        except Exception:
+            pass
+        if self.detail_panel.visible:
+            self.back_to_list()
+            return True
+        return False
+
     def toggle_reveal(self, cred: Credential) -> None:
         if cred.id in self.state.revealed:
             self.state.revealed.pop(cred.id, None)
@@ -259,8 +278,11 @@ class VaultScreen:
         self.refresh_list()
 
     def add_entry(self) -> None:
+        if self.on_edit is not None:
+            self.on_edit(None, self._save_new)
+            return
         dlg.credential_dialog(self.state.page, self.state.generator_defaults(), None,
-                             on_save=self._save_new)
+                              on_save=self._save_new)
 
     def _save_new(self, cred: Credential) -> None:
         try:
@@ -268,11 +290,18 @@ class VaultScreen:
         except Exception as exc:
             dlg.info_dialog(self.state.page, "保存失败", str(exc))
             return
-        self.refresh_list()
+        self.state.revealed.pop(cred.id, None)
+        # 整页编辑模式下保存完直接进该条目详情，所以刷新时保留详情视图
+        self.refresh_list(keep_view=self.on_edit is not None)
+        if self.on_edit is not None:
+            self.open_detail(cred)          # 弹窗模式不会走到这里；整页模式定位到该条目
 
     def edit_entry(self, cred: Credential) -> None:
+        if self.on_edit is not None:
+            self.on_edit(cred, self._save_edit)
+            return
         dlg.credential_dialog(self.state.page, self.state.generator_defaults(), cred,
-                             on_save=self._save_edit, on_delete=self.delete_entry)
+                              on_save=self._save_edit, on_delete=self.delete_entry)
 
     def _save_edit(self, cred: Credential) -> None:
         try:
@@ -281,9 +310,9 @@ class VaultScreen:
             dlg.info_dialog(self.state.page, "保存失败", str(exc))
             return
         self.state.revealed.pop(cred.id, None)
-        self.open_detail(cred)
-        self.refresh_list()
-        self.open_detail(cred)
+        self.refresh_list(keep_view=self.on_edit is not None)
+        if self.on_edit is not None:
+            self.open_detail(cred)
 
     def delete_entry(self, cred: Credential) -> None:
         def do_delete() -> None:

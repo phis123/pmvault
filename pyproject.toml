@@ -1,7 +1,7 @@
 [project]
 name = "pmvault"
-version = "1.0.0"
-description = "账号密码管理（Android 版）：本地加密存储，AES-256-GCM + Scrypt/Argon2id"
+version = "1.0.4"
+description = "账号密码管理（桌面 Tkinter / 浏览器 / Android 三端共用内核）：本地加密，AES-256-GCM + Scrypt/Argon2id"
 requires-python = ">=3.10"
 dependencies = [
     "flet==1.0.4",
@@ -23,4 +23,4 @@ split_per_abi = true
 
 # 签名信息不写在这里，全部通过环境变量注入（见 .github/workflows/build-apk.yml）：
 #   FLET_ANDROID_SIGNING_KEY_STORE / _STORE_PASSWORD / _KEY_PASSWORD / _KEY_ALIAS
-# 本地文件在 keystore\pmvault.p12（PKCS#12 格式，Android 工具链可直接使用）
+# 签名密钥**不随仓库分发**（私钥 + 明文口令），见 .gitignore 与 README「签名密钥」一节。

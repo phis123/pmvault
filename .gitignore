@@ -1,0 +1,40 @@
+# ── 密钥与口令：绝不入库 ──────────────────────────────────────────────
+# 签名私钥 / 明文口令 / base64 版密钥。本仓库是**源码仓库**，密钥不随仓库分发。
+keystore/
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.b64
+密码.txt
+
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# ── 构建产物（走 Releases / Actions Artifacts，不进仓库）──────────────
+build/
+dist/
+*.spec
+*.apk
+*.aab
+*.exe
+*.zip
+
+# ── 本地数据（保险库与设置里含个人数据）──────────────────────────────
+data/
+data_android/
+settings.json
+vault.pmvault
+vault.pmvault.bak
+*.log
+
+# ── 编辑器 / 系统 ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
