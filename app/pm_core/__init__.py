@@ -14,6 +14,7 @@ from .crypto import (  # noqa: F401
 from .models import Credential, VaultHeader, FORMAT_NAME, FORMAT_VERSION  # noqa: F401
 from .generator import DEFAULT_OPTIONS, build_alphabet, generate_password  # noqa: F401
 from .vault import Vault, VaultError, VaultFormatError, VaultLockedError  # noqa: F401
+from . import sorting  # noqa: F401
 from . import sync  # noqa: F401
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "VaultError",
     "VaultFormatError",
     "VaultLockedError",
+    "sorting",
     "sync",
     "generate_password",
     "build_alphabet",
