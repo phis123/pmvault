@@ -90,6 +90,10 @@ jobs:
             rm -rf /tmp/jdk.tar.gz /tmp/jdkx
           fi
           export JAVA_HOME="$DIR"
+          # 必须写进 GITHUB_ENV：runner 镜像自带 JAVA_HOME（2026-11 起默认 JDK 25），
+          # 不覆盖的话，没自己 export 的步骤（如「预检」）会拿到 25，而 Flet 要求 17 → 预检失败。
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          echo "PATH=$JAVA_HOME/bin:$PATH" >> "$GITHUB_ENV"
           "$DIR/bin/javac" -version
 
       - name: 安装 Android SDK（含 Flet 要求的基础包）
@@ -128,7 +132,11 @@ jobs:
       - name: 预检：确认 Flet 不会再弹交互提示
         env:
           PYTHONPATH: ${{ github.workspace }}/app
-        run: python "${{ github.workspace }}/app/pm_android/precheck_ci.py"
+        run: |
+          # 双保险：即使 GITHUB_ENV 没生效，这一步也显式指向 JDK 17
+          export JAVA_HOME="$HOME/java/$JDK_DIR"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          python "${{ github.workspace }}/app/pm_android/precheck_ci.py"
 
       - name: 还原签名密钥（从 Secrets）
         env:
