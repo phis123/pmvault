@@ -6,11 +6,11 @@ Flet 1.0 的用法：page.show_dialog(dialog) / page.pop_dialog()，
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import flet as ft
 
-from pm_core import Credential, crypto, generator, sync
+from pm_core import Credential, crypto, generator, sorting, sync
 
 
 # ---------------------------------------------------------------- 基础弹层
@@ -268,6 +268,63 @@ def generator_dialog(page: ft.Page, defaults: Dict[str, Any], on_use: Callable[[
         modal=True,
     ))
     refresh()
+
+
+# ---------------------------------------------------------------- 排序
+
+def sort_dialog(page: ft.Page, current_key: str, current_desc: bool,
+                on_apply: Callable[[str, bool], None]) -> None:
+    """排序方式：点一项即时生效，方向在同一个弹层里切换，共两次点按。"""
+    chosen = {"key": sorting.normalize_sort_key(current_key), "desc": bool(current_desc)}
+    rows: List[Tuple[str, Any, ft.Container, ft.Icon]] = []
+
+    def make_row(group: str, value: Any, label: str) -> ft.Container:
+        tick = ft.Icon(getattr(ft.Icons, "CHECK", None) or ft.Icons.DONE, size=18,
+                       color="#2f6fed", visible=False)
+        box = ft.Container(
+            content=ft.Row([ft.Text(label, expand=True), tick], spacing=6, tight=True),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=9),
+            border_radius=8, bgcolor="#ffffff", border=ft.Border.all(1, "#e6ebf2"),
+        )
+        box.on_click = lambda _e, g=group, v=value: pick(g, v)
+        rows.append((group, value, box, tick))
+        return box
+
+    def paint() -> None:
+        for group, value, box, tick in rows:
+            active = chosen[group] == value
+            tick.visible = active
+            box.bgcolor = "#eef4ff" if active else "#ffffff"
+            box.border = ft.Border.all(1, "#2f6fed" if active else "#e6ebf2")
+
+    def pick(group: str, value: Any) -> None:
+        if chosen[group] == value:
+            return
+        chosen[group] = value
+        paint()
+        page.update()
+        on_apply(chosen["key"], chosen["desc"])
+
+    key_rows = [make_row("key", k, sorting.SORT_LABELS[k]) for k in sorting.SORT_KEYS]
+    dir_rows = [make_row("desc", False, "递增（A→Z，旧→新）"),
+                make_row("desc", True, "递减（Z→A，新→旧）")]
+    paint()
+
+    page.show_dialog(ft.AlertDialog(
+        title=ft.Text("排序方式"),
+        content=ft.Container(
+            content=ft.Column([
+                ft.Text("先按什么排", size=13, color="#6b7889"),
+                *key_rows,
+                ft.Text("方向", size=13, color="#6b7889"),
+                *dir_rows,
+                ft.Text("改动立即生效，并会记住到下次打开。", size=12, color="#98a2b3"),
+            ], spacing=6, tight=True),
+            width=320,
+        ),
+        actions=[ft.FilledButton("完成", on_click=lambda _e: page.pop_dialog())],
+        modal=True,
+    ))
 
 
 # ---------------------------------------------------------------- 加密同步
