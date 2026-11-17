@@ -54,5 +54,14 @@ flet run app/main.py                   # Android 界面（桌面预览）
 
 ## 测试
 
-自动化测试目前留在作者本地环境（依赖打包产物、真实 Tk 窗口与 Android 工具链，不便直接进仓库）。
-后续若整理成可移植版本会一并提交。
+```bash
+pip install cryptography==48.0.0 flet==1.0.4 pytest
+python tests/run_all.py            # 串行跑完 14 个测试文件并汇总
+```
+
+覆盖：加密内核（26 项）、排序规则（29 项）、同步文件导出/导入（25 项）、桌面弹窗定位（20 项）、
+桌面字段显示回归、忘记密码/重置流程、Android 界面/布局/导航/重置、浏览器版接口与端到端。
+
+- 桌面相关测试会**真实创建 Tk 窗口**（`withdraw()` 隐藏后测），需要图形环境。
+- `tests/test_tk_exe.py` 需要先打包出 `dist_tk/PMVaultTk/`，缺产物时会明确 `[skip]`，不会假红。
+- 不是 mock：真建窗口、真起 HTTP 服务、真读写保险库文件。详见 [tests/README.md](tests/README.md)。
