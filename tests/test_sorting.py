@@ -151,6 +151,25 @@ def main() -> int:
 
     check("pm_core 导出 sorting", hasattr(pm_core, "sorting") and "sorting" in pm_core.__all__)
 
+    # ------------------------------------------------ 社区贡献的边角用例（3 项）
+    # 来自 PR #1 作者 certainly70 的 tests/test_sorting.py（该文件当时未随 PR 提交）
+    print("\n【6】边角用例（据 PR #1 作者的测试补充）")
+
+    prefix = [make(n) for n in ["abc", "ab", "abcd"]]
+    check("前缀较短的排前面（ab < abc < abcd）",
+          names(sorting.sort_credentials(prefix, sorting.SORT_NAME)) == ["ab", "abc", "abcd"])
+
+    # Python 的 \d 匹配 Unicode 十进制数字，int() 也认全角，所以全角数字同样按数值排
+    fullwidth = [make(n) for n in ["条目１０", "条目２", "条目１"]]
+    check("全角数字也按数值（１ < ２ < １０）",
+          names(sorting.sort_credentials(fullwidth, sorting.SORT_NAME)) == ["条目１", "条目２", "条目１０"])
+
+    tz = [make("后"), make("前")]
+    tz[0].created_at = "2026-01-01T10:00:00+08:00"      # = 02:00Z
+    tz[1].created_at = "2026-01-01T01:00:00+00:00"      # = 01:00Z
+    check("跨时区按真实时刻比（01:00Z 早于 10:00+08:00）",
+          names(sorting.sort_credentials(tz, sorting.SORT_CREATED)) == ["前", "后"])
+
     print("\n" + "=" * 66)
     if FAIL:
         print(f"失败 {len(FAIL)} 项：")
