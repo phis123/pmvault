@@ -1,6 +1,6 @@
 [project]
 name = "pmvault"
-version = "2.0.0"
+version = "2.0.1"
 description = "PMVault 双端统一本地加密密码库（Windows 桌面 / Android 手机与平板）：AES-256-GCM + 64MB Scrypt/Argon2id + 本机密钥 + 一次性恢复码 + 双通道互补同步"
 requires-python = ">=3.10"
 dependencies = [

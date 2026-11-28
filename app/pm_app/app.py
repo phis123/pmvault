@@ -22,8 +22,10 @@ def main(page: ft.Page) -> None:
     page.padding = 0
     page.spacing = 0
 
-    # 桌面窗口默认宽屏尺寸（Android 上自动忽略）
-    if not os.environ.get("FLET_APP_STORAGE_DATA"):
+    # 桌面端使用仿宋字体（Windows）；移动端沿用系统默认无衬线字体
+    if os.name == "nt" and not os.environ.get("FLET_APP_STORAGE_DATA"):
+        page.theme = ft.Theme(font_family="FangSong")
+        page.dark_theme = ft.Theme(font_family="FangSong")
         try:
             page.window.width = 1140
             page.window.height = 720

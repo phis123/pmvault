@@ -6,7 +6,7 @@
 ; 2. 禁止配置 [UninstallDelete] 删除 data\，卸载绝不能删除用户密码库。
 
 #ifndef AppVersion
-  #define AppVersion "2.0.0"
+  #define AppVersion "2.0.1"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\build\windows"

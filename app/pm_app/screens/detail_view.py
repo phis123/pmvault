@@ -1,6 +1,7 @@
 """现代分块卡片详情页：
 按业务分块展示 9 类账号信息，空区块自动隐藏保持视觉极简；
-内置实时 2FA 验证码（30 秒进度条）、可点击划掉的备用恢复码网格、独立遮罩与一键复制。
+所有局部交互（小眼睛显隐密码/密保/密钥、收藏、历史展开、划掉备用恢复码）
+均采用「原地控件更新」，绝不重建滚动容器，彻底避免手机端点击后跳回页面顶部。
 """
 
 from __future__ import annotations
@@ -32,12 +33,14 @@ class DetailView:
         self._show_password = False
         self._revealed_keys: Set[str] = set()
         self._show_history = False
+        self._show_back = False
 
         # 实时 TOTP 控件引用，供外部每秒刷新
         self._totp_code_txt: Optional[ft.Text] = None
         self._totp_rem_txt: Optional[ft.Text] = None
         self._totp_bar: Optional[ft.ProgressBar] = None
 
+        self._scroll_col = ft.Column([], spacing=14, scroll=ft.ScrollMode.AUTO, expand=True)
         self._container = ft.Container(expand=True)
 
     def control(self) -> ft.Control:
@@ -82,10 +85,11 @@ class DetailView:
             self._container.content = ft.Container(
                 expand=True,
                 alignment=ft.Alignment(0, 0),
+                padding=20,
                 content=ft.Column(
                     [
                         ft.Icon(ft.Icons.KEY_OFF_OUTLINED, size=48, color=pal.text_faint),
-                        ft.Text("选择左侧条目查看详情，或点击「+」新增账号", size=14, color=pal.text_muted),
+                        ft.Text("选择左侧条目查看详情，或点击「+」新增账号", size=14, color=pal.text_muted, text_align=ft.TextAlign.CENTER),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=10,
@@ -95,37 +99,52 @@ class DetailView:
 
         blocks: list[ft.Control] = []
 
-        # 1. 顶部标题栏
-        top_left: list[ft.Control] = []
-        if getattr(self, "_show_back", False) and self.on_back is not None:
-            top_left.append(ft.IconButton(ft.Icons.ARROW_BACK, tooltip="返回列表", on_click=lambda _e: self.on_back()))
-        top_left.append(
-            ft.Container(
-                content=ft.Text((cred.name[:1] or "?").upper(), size=18, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                width=42,
-                height=42,
-                border_radius=12,
-                bgcolor=pal.primary,
-                alignment=ft.Alignment(0, 0),
-            )
+        # 1. 顶部标题栏（手机窄屏拆为两行：顶栏操作 + 满宽标题行）
+        avatar = ft.Container(
+            content=ft.Text((cred.name[:1] or "?").upper(), size=18, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+            width=42,
+            height=42,
+            border_radius=12,
+            bgcolor=pal.primary,
+            alignment=ft.Alignment(0, 0),
         )
         title_col = ft.Column(
             [
-                ft.Text(cred.name, size=20, weight=ft.FontWeight.BOLD, color=pal.text),
-                ft.Text(cred.url or cred.username or "未填写网址", size=12, color=pal.text_muted),
+                ft.Text(
+                    cred.name,
+                    size=20,
+                    weight=ft.FontWeight.BOLD,
+                    color=pal.text,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+                ft.Text(
+                    cred.url or cred.username or "未填写网址",
+                    size=12,
+                    color=pal.text_muted,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
             ],
             spacing=2,
             expand=True,
         )
-        top_left.append(title_col)
+
+        fav_btn = ft.IconButton(
+            ft.Icons.STAR if cred.favorite else ft.Icons.STAR_BORDER,
+            icon_color=pal.warning if cred.favorite else pal.text_muted,
+            tooltip="收藏",
+        )
 
         def _toggle_fav(_e) -> None:
             cred.favorite = not cred.favorite
             vault.update(cred)
-            self.on_changed()
-            self.render()
+            fav_btn.icon = ft.Icons.STAR if cred.favorite else ft.Icons.STAR_BORDER
+            fav_btn.icon_color = pal.warning if cred.favorite else pal.text_muted
             if self.state.page:
                 self.state.page.update()
+
+        fav_btn.on_click = _toggle_fav
 
         def _soft_del(_e) -> None:
             vault.soft_delete(cred.id)
@@ -133,7 +152,7 @@ class DetailView:
             self._cred = None
             self.state.toast("已移入回收站")
             self.on_changed()
-            if getattr(self, "_show_back", False) and self.on_back:
+            if self._show_back and self.on_back:
                 self.on_back()
 
         def _restore(_e) -> None:
@@ -147,7 +166,7 @@ class DetailView:
             self._cred = None
             self.state.toast("已彻底删除")
             self.on_changed()
-            if getattr(self, "_show_back", False) and self.on_back:
+            if self._show_back and self.on_back:
                 self.on_back()
 
         if cred.is_deleted:
@@ -161,35 +180,55 @@ class DetailView:
         else:
             action_btns = ft.Row(
                 [
-                    ft.IconButton(
-                        ft.Icons.STAR if cred.favorite else ft.Icons.STAR_BORDER,
-                        icon_color=pal.warning if cred.favorite else pal.text_muted,
-                        tooltip="收藏",
-                        on_click=_toggle_fav,
-                    ),
+                    fav_btn,
                     ft.FilledTonalButton("编辑", icon=ft.Icons.EDIT_OUTLINED, on_click=lambda _e: self.on_edit(cred)),
                     ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=pal.danger, tooltip="移入回收站", on_click=_soft_del),
                 ],
                 spacing=4,
             )
 
-        blocks.append(
-            ft.Row(
-                [ft.Row(top_left, spacing=12, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER), action_btns],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        if self._show_back and self.on_back is not None:
+            blocks.append(
+                ft.Row(
+                    [
+                        ft.IconButton(ft.Icons.ARROW_BACK, tooltip="返回列表", on_click=lambda _e: self.on_back()),
+                        action_btns,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
             )
-        )
+            blocks.append(
+                ft.Row(
+                    [avatar, title_col],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+        else:
+            blocks.append(
+                ft.Row(
+                    [ft.Row([avatar, title_col], spacing=12, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER), action_btns],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
 
         # 健康徽章 + 标签胶囊
         markers = vault.markers(cred, old_days=self.state.old_days())
         meta_chips: list[ft.Control] = []
         for label, color in markers:
-            meta_chips.append(pill(f"{label}密码", color, pal.warning_soft if label == "重" else pal.danger_soft if label == "弱" else pal.surface_alt))
+            meta_chips.append(
+                pill(
+                    f"{label}密码",
+                    color,
+                    pal.warning_soft if label == "重" else pal.danger_soft if label == "弱" else pal.surface_alt,
+                )
+            )
         for tag in cred.tags:
             meta_chips.append(pill(f"# {tag}", pal.primary, pal.primary_soft))
         if meta_chips:
-            blocks.append(ft.Row(meta_chips, wrap=True, spacing=6))
+            blocks.append(ft.Row(meta_chips, wrap=True, spacing=6, run_spacing=6))
 
         # 2. 基础凭证卡（账号 / 密码 / 网址）
         blocks.append(self._build_credentials_card(cred, pal))
@@ -225,22 +264,25 @@ class DetailView:
                 )
             )
 
-        # 底部时间信息
+        # 底部时间信息（精简格式）
+        c_time = (cred.created_at or "")[:16].replace("T", " ")
+        u_time = (cred.updated_at or "")[:16].replace("T", " ")
         blocks.append(
             ft.Text(
-                f"创建于 {cred.created_at} · 更新于 {cred.updated_at} · 密码已使用 {cred.age_days()} 天",
+                f"创建 {c_time} · 更新 {u_time} · 密码已用 {cred.age_days()} 天",
                 size=11,
                 color=pal.text_faint,
             )
         )
 
+        self._scroll_col.controls = blocks
         self._container.content = ft.Container(
             expand=True,
-            padding=ft.Padding.symmetric(horizontal=20, vertical=16),
-            content=ft.Column(blocks, spacing=14, scroll=ft.ScrollMode.AUTO, expand=True),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=14),
+            content=self._scroll_col,
         )
 
-    # ------------------------------------------------------------ 各分块卡片构建
+    # ------------------------------------------------------------ 原地更新字段行（绝不跳顶）
     def _field_row(
         self,
         label: str,
@@ -250,23 +292,46 @@ class DetailView:
         mono: bool = False,
         secret: bool = False,
         revealed: bool = True,
-        on_toggle_reveal: Optional[Callable[[], None]] = None,
         on_copy: Optional[Callable[[], None]] = None,
         extra_btn: Optional[ft.Control] = None,
+        on_state_change: Optional[Callable[[bool], None]] = None,
     ) -> ft.Control:
-        shown = value if revealed else ("••••••••••••" if value else "—")
+        state_box = {"rev": revealed}
+        val_txt = ft.Text(
+            (value if revealed else ("••••••••••••" if value else "—")) or "—",
+            size=14,
+            color=pal.text,
+            font_family=MONO_FONT if mono else None,
+            selectable=revealed,
+        )
+
         btns: list[ft.Control] = []
         if extra_btn is not None:
             btns.append(extra_btn)
-        if on_toggle_reveal is not None:
-            btns.append(
-                ft.IconButton(
-                    ft.Icons.VISIBILITY_OFF if revealed else ft.Icons.VISIBILITY,
-                    icon_size=18,
-                    tooltip="隐藏" if revealed else "显示",
-                    on_click=lambda _e: on_toggle_reveal(),
-                )
+
+        if secret:
+            eye_btn = ft.IconButton(
+                ft.Icons.VISIBILITY_OFF if revealed else ft.Icons.VISIBILITY,
+                icon_size=18,
+                tooltip="隐藏" if revealed else "显示",
             )
+
+            def _toggle(_e) -> None:
+                self.state.touch_activity()
+                state_box["rev"] = not state_box["rev"]
+                rev_now = state_box["rev"]
+                val_txt.value = (value if rev_now else ("••••••••••••" if value else "—")) or "—"
+                val_txt.selectable = rev_now
+                eye_btn.icon = ft.Icons.VISIBILITY_OFF if rev_now else ft.Icons.VISIBILITY
+                eye_btn.tooltip = "隐藏" if rev_now else "显示"
+                if on_state_change is not None:
+                    on_state_change(rev_now)
+                if self.state.page:
+                    self.state.page.update()
+
+            eye_btn.on_click = _toggle
+            btns.append(eye_btn)
+
         if on_copy is not None and value:
             btns.append(
                 ft.IconButton(ft.Icons.COPY, icon_size=18, tooltip=f"复制{label}", on_click=lambda _e: on_copy())
@@ -276,13 +341,7 @@ class DetailView:
                 ft.Column(
                     [
                         ft.Text(label, size=11, color=pal.text_faint),
-                        ft.Text(
-                            shown or "—",
-                            size=14,
-                            color=pal.text,
-                            font_family=MONO_FONT if mono else None,
-                            selectable=revealed,
-                        ),
+                        val_txt,
                     ],
                     spacing=2,
                     expand=True,
@@ -307,11 +366,12 @@ class DetailView:
         st = crypto.password_strength(cred.password)
         st_colors = [pal.danger, pal.danger, pal.warning, pal.success, pal.success]
 
-        def _toggle_pw() -> None:
-            self._show_password = not self._show_password
-            self.render()
-            if self.state.page:
-                self.state.page.update()
+        hist_pw_texts: list[tuple[ft.Text, str]] = []
+
+        def _on_pw_rev(rev_now: bool) -> None:
+            self._show_password = rev_now
+            for txt_ctrl, raw_hpw in hist_pw_texts:
+                txt_ctrl.value = raw_hpw if rev_now else "••••••••"
 
         rows.append(
             self._field_row(
@@ -321,8 +381,8 @@ class DetailView:
                 mono=True,
                 secret=True,
                 revealed=self._show_password,
-                on_toggle_reveal=_toggle_pw,
                 on_copy=lambda: self.state.copy_text(cred.password, "密码", is_secret=True),
+                on_state_change=_on_pw_rev,
             )
         )
         rows.append(
@@ -351,37 +411,42 @@ class DetailView:
             )
 
         if cred.password_history:
+            hist_rows: list[ft.Control] = []
+            for h in cred.password_history:
+                hpw = h.get("password", "")
+                htxt = ft.Text(hpw if self._show_password else "••••••••", font_family=MONO_FONT, size=12, color=pal.text_muted, expand=True)
+                hist_pw_texts.append((htxt, hpw))
+                hist_rows.append(
+                    ft.Row(
+                        [
+                            ft.Text(h.get("changed_at", "")[:10], size=11, color=pal.text_faint, width=82),
+                            htxt,
+                            ft.IconButton(
+                                ft.Icons.COPY,
+                                icon_size=16,
+                                tooltip="复制历史密码",
+                                on_click=lambda _e, p=hpw: self.state.copy_text(p, "历史密码", is_secret=True),
+                            ),
+                        ],
+                        spacing=6,
+                    )
+                )
+            hist_box = ft.Column(hist_rows, spacing=4, visible=self._show_history)
+            hist_btn = ft.TextButton(
+                f"{'收起' if self._show_history else '查看'}历史密码（{len(cred.password_history)} 条）",
+                icon=ft.Icons.HISTORY,
+            )
+
             def _toggle_hist(_e) -> None:
                 self._show_history = not self._show_history
-                self.render()
+                hist_box.visible = self._show_history
+                hist_btn.text = f"{'收起' if self._show_history else '查看'}历史密码（{len(cred.password_history)} 条）"
                 if self.state.page:
                     self.state.page.update()
 
-            rows.append(
-                ft.TextButton(
-                    f"{'收起' if self._show_history else '查看'}历史密码（{len(cred.password_history)} 条）",
-                    icon=ft.Icons.HISTORY,
-                    on_click=_toggle_hist,
-                )
-            )
-            if self._show_history:
-                for h in cred.password_history:
-                    hpw = h.get("password", "")
-                    rows.append(
-                        ft.Row(
-                            [
-                                ft.Text(h.get("changed_at", "")[:10], size=11, color=pal.text_faint, width=82),
-                                ft.Text(hpw if self._show_password else "••••••••", font_family=MONO_FONT, size=12, color=pal.text_muted, expand=True),
-                                ft.IconButton(
-                                    ft.Icons.COPY,
-                                    icon_size=16,
-                                    tooltip="复制历史密码",
-                                    on_click=lambda _e, p=hpw: self.state.copy_text(p, "历史密码", is_secret=True),
-                                ),
-                            ],
-                            spacing=6,
-                        )
-                    )
+            hist_btn.on_click = _toggle_hist
+            rows.append(hist_btn)
+            rows.append(hist_box)
         return card(ft.Column(rows, spacing=10), pal)
 
     def _build_totp_card(self, cred: Credential, pal: Palette) -> ft.Control:
@@ -390,7 +455,7 @@ class DetailView:
             self._totp_code_txt = ft.Text(
                 totp.format_code(code),
                 font_family=MONO_FONT,
-                size=26,
+                size=24,
                 weight=ft.FontWeight.BOLD,
                 color=pal.primary,
                 selectable=True,
@@ -416,13 +481,15 @@ class DetailView:
                             ft.Row(
                                 [
                                     self._totp_rem_txt,
-                                    ft.FilledTonalButton("复制验证码", icon=ft.Icons.COPY, on_click=_copy_totp),
+                                    ft.FilledTonalButton("复制", icon=ft.Icons.COPY, on_click=_copy_totp),
                                 ],
-                                spacing=8,
+                                spacing=6,
+                                tight=True,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        wrap=True,
                     ),
                     self._totp_bar,
                 ],
@@ -470,16 +537,12 @@ class DetailView:
                 q = item.get("question", "密保问题")
                 a = item.get("answer", "")
                 k_id = f"qa_{idx}"
-                rev = k_id in self._revealed_keys
 
-                def _tog(kid=k_id) -> None:
-                    if kid in self._revealed_keys:
-                        self._revealed_keys.remove(kid)
-                    else:
+                def _on_qa(rev_now: bool, kid=k_id) -> None:
+                    if rev_now:
                         self._revealed_keys.add(kid)
-                    self.render()
-                    if self.state.page:
-                        self.state.page.update()
+                    else:
+                        self._revealed_keys.discard(kid)
 
                 rows.append(
                     self._field_row(
@@ -487,49 +550,51 @@ class DetailView:
                         a,
                         pal,
                         secret=True,
-                        revealed=rev,
-                        on_toggle_reveal=_tog,
+                        revealed=(k_id in self._revealed_keys),
                         on_copy=lambda ans=a: self.state.copy_text(ans, "密保答案", is_secret=True),
+                        on_state_change=_on_qa,
                     )
                 )
             elif itype == "backup_codes":
                 lbl = item.get("label") or "备用恢复码组"
                 codes = item.get("codes") or []
                 unused = sum(1 for c in codes if not c.get("used"))
+                header_txt = ft.Text(f"{lbl}（剩余 {unused}/{len(codes)} 组，点击划掉已用）", size=12, color=pal.text_muted, expand=True)
                 chips: list[ft.Control] = []
                 for c_idx, c_obj in enumerate(codes):
                     code_str = str(c_obj.get("code", ""))
                     used = bool(c_obj.get("used", False))
+                    ic = ft.Icon(
+                        ft.Icons.CHECK_CIRCLE if used else ft.Icons.RADIO_BUTTON_UNCHECKED,
+                        size=14,
+                        color=pal.text_faint if used else pal.primary,
+                    )
+                    ct = ft.Text(
+                        code_str,
+                        font_family=MONO_FONT,
+                        size=12,
+                        color=pal.text_faint if used else pal.text,
+                        style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH if used else ft.TextDecoration.NONE),
+                    )
 
-                    def _toggle_used(_e, ii=idx, ci=c_idx) -> None:
+                    def _toggle_used(_e, ii=idx, ci=c_idx, ic_ref=ic, ct_ref=ct, htxt=header_txt, l_str=lbl, c_list=codes) -> None:
                         if vault is None:
                             return
-                        cred.recovery_items[ii]["codes"][ci]["used"] = not bool(cred.recovery_items[ii]["codes"][ci].get("used"))
+                        new_used = not bool(cred.recovery_items[ii]["codes"][ci].get("used"))
+                        cred.recovery_items[ii]["codes"][ci]["used"] = new_used
                         vault.update(cred)
-                        self.render()
+                        ic_ref.name = ft.Icons.CHECK_CIRCLE if new_used else ft.Icons.RADIO_BUTTON_UNCHECKED
+                        ic_ref.color = pal.text_faint if new_used else pal.primary
+                        ct_ref.color = pal.text_faint if new_used else pal.text
+                        ct_ref.style = ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH if new_used else ft.TextDecoration.NONE)
+                        rem_cnt = sum(1 for x in c_list if not x.get("used"))
+                        htxt.value = f"{l_str}（剩余 {rem_cnt}/{len(c_list)} 组，点击划掉已用）"
                         if self.state.page:
                             self.state.page.update()
 
                     chips.append(
                         ft.Container(
-                            content=ft.Row(
-                                [
-                                    ft.Icon(
-                                        ft.Icons.CHECK_CIRCLE if used else ft.Icons.RADIO_BUTTON_UNCHECKED,
-                                        size=14,
-                                        color=pal.text_faint if used else pal.primary,
-                                    ),
-                                    ft.Text(
-                                        code_str,
-                                        font_family=MONO_FONT,
-                                        size=12,
-                                        color=pal.text_faint if used else pal.text,
-                                        style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH if used else ft.TextDecoration.NONE),
-                                    ),
-                                ],
-                                spacing=5,
-                                tight=True,
-                            ),
+                            content=ft.Row([ic, ct], spacing=5, tight=True),
                             padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                             border_radius=8,
                             bgcolor=pal.surface_alt,
@@ -543,7 +608,7 @@ class DetailView:
                         [
                             ft.Row(
                                 [
-                                    ft.Text(f"{lbl}（剩余 {unused}/{len(codes)} 组，点击划掉已用）", size=12, color=pal.text_muted),
+                                    header_txt,
                                     ft.TextButton(
                                         "复制未用码",
                                         on_click=lambda _e, cs=codes: self.state.copy_text(
@@ -554,6 +619,7 @@ class DetailView:
                                     ),
                                 ],
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             ft.Row(chips, wrap=True, spacing=8, run_spacing=8),
                         ],
@@ -575,16 +641,12 @@ class DetailView:
             val = k.get("value") or ""
             note = k.get("note") or ""
             kid = f"api_{idx}"
-            rev = kid in self._revealed_keys
 
-            def _tog(key_id=kid) -> None:
-                if key_id in self._revealed_keys:
-                    self._revealed_keys.remove(key_id)
-                else:
+            def _on_api(rev_now: bool, key_id=kid) -> None:
+                if rev_now:
                     self._revealed_keys.add(key_id)
-                self.render()
-                if self.state.page:
-                    self.state.page.update()
+                else:
+                    self._revealed_keys.discard(key_id)
 
             title_lbl = f"{lbl} · {note}" if note else lbl
             rows.append(
@@ -594,9 +656,9 @@ class DetailView:
                     pal,
                     mono=True,
                     secret=True,
-                    revealed=rev,
-                    on_toggle_reveal=_tog,
+                    revealed=(kid in self._revealed_keys),
                     on_copy=lambda v=val, l=lbl: self.state.copy_text(v, l, is_secret=True),
+                    on_state_change=_on_api,
                 )
             )
         return card(ft.Column(rows, spacing=10), pal)

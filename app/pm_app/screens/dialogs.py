@@ -319,7 +319,8 @@ def open_import_dialog(
             [
                 ft.Radio(value="merge", label="合并到当前库", disabled=not (allow_merge_current and state.vault is not None)),
                 ft.Radio(value="new_vault", label="导入为独立新库"),
-            ]
+            ],
+            wrap=True,
         ),
     )
     err_txt = ft.Text("", size=12, color=pal.danger)

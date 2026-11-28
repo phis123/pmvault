@@ -42,14 +42,21 @@ class VaultScreen:
         # 窄屏当前子页：'list' | 'detail' | 'editor'
         self._sub_view: str = "list"
         self._right_mode: str = "detail"  # 'detail' | 'editor'
-        self._drawer_open = False
+        self._rendered_layout_key: Optional[tuple] = None
 
         self.search_tf = ft.TextField(
-            hint_text="搜索标题 / 账号 / 网址 / 密保 / 密钥 / 标签",
-            prefix_icon=ft.Icons.SEARCH,
+            hint_text="输入关键词后按回车搜索",
             dense=True,
             expand=True,
-            on_change=self._on_search_change,
+            on_submit=self._on_search_submit,
+            suffix=ft.Row(
+                [
+                    ft.IconButton(ft.Icons.SEARCH, icon_size=18, tooltip="搜索", on_click=self._on_search_submit),
+                    ft.IconButton(ft.Icons.CLEAR, icon_size=18, tooltip="清空", on_click=self._on_search_clear),
+                ],
+                spacing=0,
+                tight=True,
+            ),
         )
 
         self.detail = DetailView(
@@ -66,7 +73,7 @@ class VaultScreen:
 
         self._sidebar_col = ft.Column([], spacing=2, scroll=ft.ScrollMode.AUTO, expand=True)
         self._list_view = ft.ListView(expand=True, spacing=2, padding=ft.Padding.symmetric(horizontal=8, vertical=6))
-        self._status_bar = ft.Text("", size=11)
+        self._status_bar = ft.Text("", size=11, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
         self._root = ft.Container(expand=True)
 
     def build(self) -> ft.Control:
@@ -121,9 +128,15 @@ class VaultScreen:
             self._sub_view = "detail" if self.state.selected_id else "list"
         self._render_layout()
 
-    def _on_search_change(self, _e) -> None:
+    def _on_search_submit(self, _e=None) -> None:
         self.state.touch_activity()
         self.state.search_query = (self.search_tf.value or "").strip()
+        self.refresh()
+
+    def _on_search_clear(self, _e=None) -> None:
+        self.state.touch_activity()
+        self.search_tf.value = ""
+        self.state.search_query = ""
         self.refresh()
 
     def _current_mode(self) -> str:
@@ -150,81 +163,85 @@ class VaultScreen:
             ("trash", "回收站", ft.Icons.DELETE_OUTLINE, stats["trash_count"]),
         ]
 
+        def _close_drawer_if_open() -> None:
+            page = self.state.page
+            if page is not None and getattr(page, "drawer", None) is not None:
+                try:
+                    page.run_task(page.close_drawer)
+                except Exception:
+                    pass
+
         def _select_cat(cat: str, tag: str = "") -> None:
             self.state.touch_activity()
             self.state.category = cat
             self.state.active_tag = tag
-            self._drawer_open = False
-            if self.state.page and getattr(self.state.page, "drawer", None):
-                try:
-                    self.state.page.close(self.state.page.drawer)
-                except Exception:
-                    pass
+            _close_drawer_if_open()
             self.refresh()
 
-        sidebar_controls: list[ft.Control] = [
-            ft.Container(
-                padding=ft.Padding.only(left=12, right=12, top=12, bottom=8),
-                content=ft.Row(
-                    [
-                        ft.Icon(ft.Icons.SHIELD, color=pal.primary, size=20),
-                        ft.Text(stats["vault_name"], size=15, weight=ft.FontWeight.BOLD, color=pal.text, expand=True),
-                    ],
-                    spacing=8,
-                ),
-            ),
-        ]
-
-        for cat_id, label, icon, cnt in nav_items:
-            active = self.state.category == cat_id and not self.state.active_tag
-            sidebar_controls.append(
+        def _build_nav_controls() -> list[ft.Control]:
+            items: list[ft.Control] = [
                 ft.Container(
+                    padding=ft.Padding.only(left=12, right=12, top=14, bottom=8),
                     content=ft.Row(
                         [
-                            ft.Icon(icon, size=18, color=pal.primary if active else pal.text_muted),
-                            ft.Text(label, size=13, weight=ft.FontWeight.W_600 if active else ft.FontWeight.NORMAL, color=pal.primary if active else pal.text, expand=True),
-                            ft.Text(str(cnt), size=11, color=pal.primary if active else pal.text_faint),
+                            ft.Icon(ft.Icons.SHIELD, color=pal.primary, size=20),
+                            ft.Text(stats["vault_name"], size=15, weight=ft.FontWeight.BOLD, color=pal.text, expand=True),
                         ],
-                        spacing=10,
+                        spacing=8,
                     ),
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=9),
-                    margin=ft.Margin.symmetric(horizontal=8, vertical=1),
-                    border_radius=8,
-                    bgcolor=pal.selected_bg if active else None,
-                    on_click=lambda _e, c=cat_id: _select_cat(c),
-                )
-            )
-
-        tags = vault.all_tags()
-        if tags:
-            sidebar_controls.append(ft.Divider(height=16, color=pal.border))
-            sidebar_controls.append(
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=14, vertical=4),
-                    content=ft.Text("标签", size=11, weight=ft.FontWeight.W_600, color=pal.text_faint),
-                )
-            )
-            for tag_name, cnt in tags:
-                active = self.state.active_tag == tag_name
-                sidebar_controls.append(
+                ),
+            ]
+            for cat_id, label, icon, cnt in nav_items:
+                active = self.state.category == cat_id and not self.state.active_tag
+                items.append(
                     ft.Container(
                         content=ft.Row(
                             [
-                                ft.Icon(ft.Icons.LABEL_OUTLINE, size=16, color=pal.primary if active else pal.text_muted),
-                                ft.Text(tag_name, size=13, color=pal.primary if active else pal.text, expand=True),
-                                ft.Text(str(cnt), size=11, color=pal.text_faint),
+                                ft.Icon(icon, size=18, color=pal.primary if active else pal.text_muted),
+                                ft.Text(label, size=13, weight=ft.FontWeight.W_600 if active else ft.FontWeight.NORMAL, color=pal.primary if active else pal.text, expand=True),
+                                ft.Text(str(cnt), size=11, color=pal.primary if active else pal.text_faint),
                             ],
-                            spacing=8,
+                            spacing=10,
                         ),
-                        padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                        padding=ft.Padding.symmetric(horizontal=12, vertical=9),
                         margin=ft.Margin.symmetric(horizontal=8, vertical=1),
                         border_radius=8,
                         bgcolor=pal.selected_bg if active else None,
-                        on_click=lambda _e, t=tag_name: _select_cat("all", t),
+                        on_click=lambda _e, c=cat_id: _select_cat(c),
                     )
                 )
+            tags_local = vault.all_tags()
+            if tags_local:
+                items.append(ft.Divider(height=16, color=pal.border))
+                items.append(
+                    ft.Container(
+                        padding=ft.Padding.symmetric(horizontal=14, vertical=4),
+                        content=ft.Text("标签", size=11, weight=ft.FontWeight.W_600, color=pal.text_faint),
+                    )
+                )
+                for tag_name, cnt in tags_local:
+                    active = self.state.active_tag == tag_name
+                    items.append(
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.LABEL_OUTLINE, size=16, color=pal.primary if active else pal.text_muted),
+                                    ft.Text(tag_name, size=13, color=pal.primary if active else pal.text, expand=True),
+                                    ft.Text(str(cnt), size=11, color=pal.text_faint),
+                                ],
+                                spacing=8,
+                            ),
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                            margin=ft.Margin.symmetric(horizontal=8, vertical=1),
+                            border_radius=8,
+                            bgcolor=pal.selected_bg if active else None,
+                            on_click=lambda _e, t=tag_name: _select_cat("all", t),
+                        )
+                    )
+            return items
 
-        self._sidebar_col.controls = sidebar_controls
+        self._build_nav_controls_fn = _build_nav_controls
+        self._sidebar_col.controls = _build_nav_controls()
 
         # 2. 重建条目列表
         entries = vault.search(
@@ -381,6 +398,7 @@ class VaultScreen:
             icon=ft.Icons.MORE_VERT,
             tooltip="更多操作",
             items=[
+                ft.PopupMenuItem(content=ft.Text("排序方式"), icon=ft.Icons.SWAP_VERT, on_click=lambda _e: self._open_sort_dialog()),
                 ft.PopupMenuItem(content=ft.Text("双通道导出（文件+二维码）"), icon=ft.Icons.QR_CODE_2, on_click=lambda _e: open_dual_export_dialog(self.state)),
                 ft.PopupMenuItem(content=ft.Text("导入同步文件 / 密码库"), icon=ft.Icons.DOWNLOAD, on_click=lambda _e: open_import_dialog(self.state, on_done=lambda _k: self.refresh())),
                 ft.PopupMenuItem(content=ft.Text("密码生成器"), icon=ft.Icons.AUTO_AWESOME, on_click=lambda _e: open_generator_dialog(self.state)),
@@ -400,22 +418,26 @@ class VaultScreen:
     def _build_list_column(self, pal: Palette, *, show_drawer_btn: bool) -> ft.Control:
         top_controls: list[ft.Control] = []
         if show_drawer_btn:
-            def _open_drawer(_e) -> None:
-                if self.state.page is None:
+            async def _open_drawer(_e) -> None:
+                page = self.state.page
+                if page is None:
                     return
-                drawer = ft.NavigationDrawer(controls=[ft.Container(padding=8, content=self._sidebar_col)])
-                self.state.page.drawer = drawer
+                nav_fn = getattr(self, "_build_nav_controls_fn", None)
+                nav_items = nav_fn() if nav_fn else []
+                page.drawer = ft.NavigationDrawer(
+                    bgcolor=pal.surface,
+                    controls=[ft.SafeArea(content=ft.Column(nav_items, spacing=2))],
+                )
+                page.update()
                 try:
-                    self.state.page.open(drawer)
+                    await page.show_drawer()
                 except Exception:
-                    drawer.open = True
-                    self.state.page.update()
+                    pass
 
             top_controls.append(ft.IconButton(ft.Icons.MENU, tooltip="分类与标签", on_click=_open_drawer))
         top_controls.extend(
             [
                 self.search_tf,
-                ft.IconButton(ft.Icons.SWAP_VERT, tooltip="排序", on_click=lambda _e: self._open_sort_dialog()),
                 ft.IconButton(ft.Icons.ADD, tooltip="新增账号 (Ctrl+N)", icon_color=pal.primary, on_click=lambda _e: self.open_new_entry()),
                 self._build_action_menu(),
             ]
@@ -440,9 +462,15 @@ class VaultScreen:
             expand=True,
         )
 
-    def _render_layout(self) -> None:
+    def _render_layout(self, *, force: bool = False) -> None:
         pal = self.state.palette()
         mode = self._current_mode()
+        layout_key = (mode, self._right_mode, self._sub_view, pal.bg)
+        if not force and self._rendered_layout_key == layout_key and self._root.content is not None:
+            if self.state.page:
+                self.state.page.update()
+            return
+        self._rendered_layout_key = layout_key
         right_panel = self.editor.control() if self._right_mode == "editor" else self.detail.control()
 
         if mode == "wide":
