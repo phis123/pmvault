@@ -128,19 +128,22 @@ class RecoveryDisplayScreen:
             )
         body_controls.extend([confirm_cb, ft.Row([proceed_btn], alignment=ft.MainAxisAlignment.END)])
 
-        return ft.Container(
+        return ft.SafeArea(
             expand=True,
-            alignment=ft.Alignment(0, 0),
-            padding=20,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=520,
-                        content=card(ft.Column(body_controls, spacing=14), pal, padding=24),
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            content=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=24),
+                content=ft.Column(
+                    [
+                        ft.Container(
+                            width=520,
+                            content=card(ft.Column(body_controls, spacing=14, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), pal, padding=24),
+                        )
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ),
         )
 
@@ -203,45 +206,49 @@ class MandatoryResetScreen:
 
         cfm_pw.on_submit = _submit
 
-        return ft.Container(
+        return ft.SafeArea(
             expand=True,
-            alignment=ft.Alignment(0, 0),
-            padding=20,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=460,
-                        content=card(
-                            ft.Column(
-                                [
-                                    pill("一次性兜底登入", pal.warning, pal.warning_soft),
-                                    ft.Text("请立即重设主密码", size=22, weight=ft.FontWeight.BOLD, color=pal.text),
-                                    ft.Text(
-                                        "您刚使用一次性恢复码解开了密码库。为了保证安全，必须先重设主密码；完成后旧恢复码将立即作废，并自动为您生成全新的一次性恢复码。",
-                                        size=13,
-                                        color=pal.text_muted,
-                                    ),
-                                    new_pw,
-                                    cfm_pw,
-                                    use_kf,
-                                    err_txt,
-                                    ft.Row(
-                                        [
-                                            ft.TextButton("取消并锁定", on_click=lambda _e: self.on_cancel()),
-                                            ft.FilledButton("确认重设并生成新恢复码", icon=ft.Icons.LOCK_RESET, on_click=_submit, height=44),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                ],
-                                spacing=14,
+            content=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=24),
+                content=ft.Column(
+                    [
+                        ft.Container(
+                            width=460,
+                            content=card(
+                                ft.Column(
+                                    [
+                                        pill("一次性兜底登入", pal.warning, pal.warning_soft),
+                                        ft.Text("请立即重设主密码", size=22, weight=ft.FontWeight.BOLD, color=pal.text),
+                                        ft.Text(
+                                            "您刚使用一次性恢复码解开了密码库。为了保证安全，必须先重设主密码；完成后旧恢复码将立即作废，并自动为您生成全新的一次性恢复码。",
+                                            size=13,
+                                            color=pal.text_muted,
+                                        ),
+                                        new_pw,
+                                        cfm_pw,
+                                        use_kf,
+                                        err_txt,
+                                        ft.Row(
+                                            [
+                                                ft.TextButton("取消并锁定", on_click=lambda _e: self.on_cancel()),
+                                                ft.FilledButton("确认重设并生成新恢复码", icon=ft.Icons.LOCK_RESET, on_click=_submit, height=44),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                                ),
+                                pal,
+                                padding=24,
                             ),
-                            pal,
-                            padding=24,
-                        ),
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        )
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ),
         )
 
@@ -294,43 +301,47 @@ class V1UpgradeScreen:
             self.state.active_master_password_hint = None
             self.on_upgraded(new_rk, kf_note)
 
-        return ft.Container(
+        return ft.SafeArea(
             expand=True,
-            alignment=ft.Alignment(0, 0),
-            padding=20,
-            content=ft.Column(
-                [
-                    ft.Container(
-                        width=480,
-                        content=card(
-                            ft.Column(
-                                [
-                                    pill("旧版密码库升级", pal.primary, pal.primary_soft),
-                                    ft.Text("检测到旧版（v1）密码库", size=22, weight=ft.FontWeight.BOLD, color=pal.text),
-                                    ft.Text(
-                                        f"已成功解开 {len(vault.active_credentials())} 条账号数据。继续后将自动转换为新版格式（原文件会自动保留一份 .v1.bak 备份），并为您重新生成全新的一次性恢复码。",
-                                        size=13,
-                                        color=pal.text_muted,
-                                    ),
-                                    vname_tf,
-                                    use_kf,
-                                    err_txt,
-                                    ft.Row(
-                                        [
-                                            ft.TextButton("暂不升级", on_click=lambda _e: self.on_cancel()),
-                                            ft.FilledButton("升级为新版并生成恢复码", icon=ft.Icons.UPGRADE, on_click=_upgrade, height=44),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                    ),
-                                ],
-                                spacing=14,
+            content=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=24),
+                content=ft.Column(
+                    [
+                        ft.Container(
+                            width=480,
+                            content=card(
+                                ft.Column(
+                                    [
+                                        pill("旧版密码库升级", pal.primary, pal.primary_soft),
+                                        ft.Text("检测到旧版（v1）密码库", size=22, weight=ft.FontWeight.BOLD, color=pal.text),
+                                        ft.Text(
+                                            f"已成功解开 {len(vault.active_credentials())} 条账号数据。继续后将自动转换为新版格式（原文件会自动保留一份 .v1.bak 备份），并为您重新生成全新的一次性恢复码。",
+                                            size=13,
+                                            color=pal.text_muted,
+                                        ),
+                                        vname_tf,
+                                        use_kf,
+                                        err_txt,
+                                        ft.Row(
+                                            [
+                                                ft.TextButton("暂不升级", on_click=lambda _e: self.on_cancel()),
+                                                ft.FilledButton("升级为新版并生成恢复码", icon=ft.Icons.UPGRADE, on_click=_upgrade, height=44),
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        ),
+                                    ],
+                                    spacing=14,
+                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                                ),
+                                pal,
+                                padding=24,
                             ),
-                            pal,
-                            padding=24,
-                        ),
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        )
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ),
         )

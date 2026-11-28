@@ -70,19 +70,23 @@ class LoginScreen:
         else:
             main_card = self._build_unlock_card(vaults, current_info)
 
-        self._root.content = ft.Container(
+        self._root.content = ft.SafeArea(
             expand=True,
-            alignment=ft.Alignment(0, 0),
-            padding=20,
-            content=ft.Column(
-                [
-                    header,
-                    ft.Container(height=8),
-                    ft.Container(width=460, content=main_card),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                scroll=ft.ScrollMode.AUTO,
-                spacing=8,
+            content=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=24),
+                content=ft.Column(
+                    [
+                        header,
+                        ft.Container(height=12),
+                        ft.Container(width=460, content=main_card),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=8,
+                ),
             ),
         )
         if self.state.page:
@@ -134,7 +138,7 @@ class LoginScreen:
                     cfm_tf,
                     use_kf,
                     err,
-                    ft.FilledButton("创建并生成一次性恢复码", icon=ft.Icons.ADD_MODERATOR, on_click=_create, height=44, width=420),
+                    ft.FilledButton("创建并生成一次性恢复码", icon=ft.Icons.ADD_MODERATOR, on_click=_create, height=46),
                     ft.Row(
                         [
                             ft.TextButton(
@@ -148,7 +152,8 @@ class LoginScreen:
                         alignment=ft.MainAxisAlignment.CENTER,
                     ),
                 ],
-                spacing=12,
+                spacing=14,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             pal,
             padding=24,
@@ -325,13 +330,14 @@ class LoginScreen:
                     kf_input,
                     secret_tf,
                     err_txt,
-                    ft.FilledButton(btn_text, icon=btn_icon, on_click=_unlock, height=44, width=420),
+                    ft.FilledButton(btn_text, icon=btn_icon, on_click=_unlock, height=46),
                     ft.Row(
                         [ft.TextButton(switch_text, on_click=_toggle_mode)],
                         alignment=ft.MainAxisAlignment.CENTER,
                     ),
                 ],
-                spacing=12,
+                spacing=14,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             pal,
             padding=24,
