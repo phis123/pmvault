@@ -1,11 +1,12 @@
 [project]
 name = "pmvault"
-version = "1.0.4"
-description = "账号密码管理（桌面 Tkinter / 浏览器 / Android 三端共用内核）：本地加密，AES-256-GCM + Scrypt/Argon2id"
+version = "2.0.0"
+description = "PMVault 双端统一本地加密密码库（Windows 桌面 / Android 手机与平板）：AES-256-GCM + 64MB Scrypt/Argon2id + 本机密钥 + 一次性恢复码 + 双通道互补同步"
 requires-python = ">=3.10"
 dependencies = [
     "flet==1.0.4",
     "cryptography==48.0.0",
+    "segno==1.6.1",
 ]
 
 [tool.flet]
@@ -18,9 +19,5 @@ copyright = "Copyright (c) 2026 phis123"
 path = "app"
 
 [tool.flet.android]
-# APK 体积与兼容性：只出 64 位 ARM（现在手机基本都是 arm64），显著减小体积
+# 只出 64 位 ARM（arm64-v8a），显著减小 APK 体积；包名保持 com.phis123.pmvault 支持覆盖升级
 split_per_abi = true
-
-# 签名信息不写在这里，全部通过环境变量注入（见 .github/workflows/build-apk.yml）：
-#   FLET_ANDROID_SIGNING_KEY_STORE / _STORE_PASSWORD / _KEY_PASSWORD / _KEY_ALIAS
-# 签名密钥**不随仓库分发**（私钥 + 明文口令），见 .gitignore 与 README「签名密钥」一节。

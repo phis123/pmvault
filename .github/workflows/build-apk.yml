@@ -120,13 +120,13 @@ jobs:
       - name: 装 Flet CLI 与依赖
         run: |
           python -m pip install --upgrade pip
-          pip install "flet[all]==1.0.4" cryptography==48.0.0
+          pip install "flet[all]==1.0.4" cryptography==48.0.0 segno==1.6.1
 
       - name: 自检：加密内核与界面能否导入
         env:
           PYTHONPATH: ${{ github.workspace }}/app
         run: |
-          python -c "import pm_core, pm_android; print('导入 OK:', pm_android.APP_TITLE)"
+          python -c "import pm_core, pm_app; print('导入 OK:', pm_app.APP_TITLE)"
           python -c "import os,tempfile;from pm_core import Vault,Credential;d=tempfile.mkdtemp();p=os.path.join(d,'v.pmvault');v=Vault.create(p,'Selftest-1!Strong');v.add(Credential(name='GitHub',username='alice',password='pw-1'));v2=Vault.unlock(p,'Selftest-1!Strong');raw=open(p,'rb').read();assert v2.all()[0].password=='pw-1';assert b'GitHub' not in raw and b'pw-1' not in raw;print('核心层自检通过：加解密往返正常、磁盘无明文')"
 
       - name: 预检：确认 Flet 不会再弹交互提示
@@ -136,7 +136,7 @@ jobs:
           # 双保险：即使 GITHUB_ENV 没生效，这一步也显式指向 JDK 17
           export JAVA_HOME="$HOME/java/$JDK_DIR"
           export PATH="$JAVA_HOME/bin:$PATH"
-          python "${{ github.workspace }}/app/pm_android/precheck_ci.py"
+          python "${{ github.workspace }}/app/pm_app/precheck_ci.py"
 
       - name: 还原签名密钥（从 Secrets）
         env:

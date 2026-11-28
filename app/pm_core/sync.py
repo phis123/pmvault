@@ -1,11 +1,10 @@
-"""加密同步：把整个保险库压成「分片字符串」，可在任意端上传/取回。
-
-格式：PM1-<版本>-<序号>/<总片数>-<Base64URL 密文>
-口令与主密码分离：同步口令 → KEK_sync；服务端只能看到密文。
-
-除了字符串，还支持**导出/导入文件**（见 export_text / save_to_file / unpack_file）：
-文件内容 = 若干行 `#` 开头的说明 + 同样的分片行。整篇仍是密文，没有同步口令打不开。
-字符串太长不方便搬运（几十片、几千字符），走文件更好用，也方便"另存到哪/发给谁"。
+"""加密同步：
+- 新版导出与导入（PM2 双通道互补模式）：
+  1. 加密文件（.pmvsync）：用一次性随机 256-bit 传输密钥加密整个密码库（文件内不含任何钥匙，可自由传输）
+  2. 互补二维码（PMQR2:...）：仅约 160~260 字节，存一次性传输密钥 + 文件指纹 + 可选携带（登录密码、本机密钥、一次性恢复码）
+  → 文件与二维码缺一不可，少任何一个都无法解开！
+- 旧版兼容（PM1 口令模式）：
+  仅保留只读解包 `unpack` / `unpack_file`，用于无损导入旧版 1.0.x 导出的 .pmvsync，不再以旧格式导出。
 """
 
 from __future__ import annotations
@@ -19,7 +18,9 @@ from typing import Any, Dict, List, Optional
 from . import crypto
 from .models import Credential
 
-MAGIC = "PM1"
+LEGACY_MAGIC = "PM1"
+DUAL_MAGIC = "PM2"
+QR_PREFIX = "PMQR2:"
 CHUNK_CHARS = 800
 SYNC_KDF = {"algo": "scrypt", "n": 1 << 15, "r": 8, "p": 1}
 
@@ -41,53 +42,239 @@ class SyncChecksumError(SyncError):
     pass
 
 
-def _sync_key(passphrase: str, salt: bytes) -> bytes:
-    return crypto.derive_kek(passphrase, salt, SYNC_KDF)
+# ------------------------------------------------------------------ 格式识别
+
+def detect_format(lines: List[str]) -> str:
+    """返回 'PM2'（新版双通道）| 'PM1'（旧版口令）| 'UNKNOWN'。"""
+    for raw in lines[:200]:
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith(DUAL_MAGIC + "-"):
+            return DUAL_MAGIC
+        if s.startswith(LEGACY_MAGIC + "-"):
+            return LEGACY_MAGIC
+    return "UNKNOWN"
 
 
-def pack(credentials: List[Credential], passphrase: str, revision: int, device: str,
-         chunk_chars: int = CHUNK_CHARS) -> List[str]:
-    """把条目列表打成若干片同步字符串。"""
+def looks_like_sync_file(text: str) -> bool:
+    return detect_format(text.splitlines()) in (DUAL_MAGIC, LEGACY_MAGIC)
+
+
+# ------------------------------------------------------------------ 新版 PM2：双通道互补导出 / 导入
+
+def pack_dual_channel(
+    credentials: List[Credential],
+    revision: int,
+    device: str,
+    *,
+    vault_name: str = "默认密码库",
+    master_password: Optional[str] = None,
+    keyfile_bytes: Optional[bytes] = None,
+    recovery_key: Optional[str] = None,
+    chunk_chars: int = CHUNK_CHARS,
+) -> Dict[str, Any]:
+    """生成双通道互补同步包：加密文件文本 + 配套二维码载荷（缺一不可）。"""
     payload = {
+        "format": DUAL_MAGIC,
         "v": int(revision),
         "device": device,
+        "vault_name": vault_name,
         "count": len(credentials),
         "credentials": [c.to_dict() for c in credentials],
     }
     plain = crypto.json_dumps(payload)
     checksum = hashlib.sha256(plain).hexdigest()
     compressed = zlib.compress(plain, 9)
-    salt = crypto.new_salt()
-    key = _sync_key(passphrase, salt)
-    body = {"salt": crypto.b64e(salt), "checksum": checksum, "blob": crypto.encrypt(key, compressed, aad=MAGIC.encode())}
+
+    transfer_key = os.urandom(crypto.KEY_LEN)
+    blob = crypto.encrypt(transfer_key, compressed, aad=DUAL_MAGIC.encode("ascii"))
+    body = {"checksum": checksum, "blob": blob}
     encoded = crypto.b64u_encode(crypto.json_dumps(body))
+    bundle_id = hashlib.sha256(encoded.encode("ascii")).hexdigest()[:12].upper()
+
     chunks = [encoded[i : i + chunk_chars] for i in range(0, len(encoded), chunk_chars)] or [""]
     total = len(chunks)
-    return [f"{MAGIC}-{revision}-{i + 1:02d}/{total:02d}-{chunk}" for i, chunk in enumerate(chunks)]
+    chunk_lines = [f"{DUAL_MAGIC}-{bundle_id}-{i + 1:02d}/{total:02d}-{chunk}" for i, chunk in enumerate(chunks)]
+
+    head = [
+        "# PMVault 双通道加密同步文件（v2）",
+        f"# 保险库：{vault_name} · 版本 v{revision} · 条目 {len(credentials)} 条 · 配对号 {bundle_id}",
+        f"# 导出设备：{device or '(未知)'} · 导出于 {datetime.datetime.now():%Y-%m-%d %H:%M}",
+        "#",
+        "# 本文件不含任何密钥，必须与「配套互补二维码」同时提供才能解开，缺一不可。",
+        "",
+    ]
+    file_text = "\n".join(head + chunk_lines) + "\n"
+
+    qr_obj: Dict[str, Any] = {
+        "v": 2,
+        "id": bundle_id,
+        "k": crypto.b64u_encode(transfer_key),
+        "n": vault_name,
+    }
+    if master_password:
+        qr_obj["mp"] = master_password
+    if keyfile_bytes:
+        qr_obj["kf"] = crypto.b64u_encode(keyfile_bytes)
+    if recovery_key:
+        qr_obj["rk"] = crypto.normalize_recovery_key(recovery_key)
+
+    qr_payload = QR_PREFIX + crypto.b64u_encode(crypto.json_dumps(qr_obj))
+    return {
+        "bundle_id": bundle_id,
+        "file_text": file_text,
+        "qr_payload": qr_payload,
+        "chunks": total,
+        "filename": default_filename(revision, device, vault_name),
+    }
+
+
+def save_dual_channel_file(path: str, file_text: str) -> str:
+    abs_path = os.path.abspath(path)
+    parent = os.path.dirname(abs_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = abs_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(file_text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, abs_path)
+    return abs_path
+
+
+def parse_dual_qr(qr_payload: str) -> Dict[str, Any]:
+    s = (qr_payload or "").strip()
+    if not s.startswith(QR_PREFIX):
+        raise SyncError("互补二维码格式不正确（应以 PMQR2: 开头）")
+    try:
+        obj = crypto.json_loads(crypto.b64u_decode(s[len(QR_PREFIX) :]))
+    except Exception as exc:
+        raise SyncError("互补二维码内容损坏，无法解析") from exc
+    if not isinstance(obj, dict) or "id" not in obj or "k" not in obj:
+        raise SyncError("互补二维码缺少必要密钥字段")
+    try:
+        transfer_key = crypto.b64u_decode(str(obj["k"]))
+    except Exception as exc:
+        raise SyncError("互补二维码中的传输密钥损坏") from exc
+    kf_bytes: Optional[bytes] = None
+    if obj.get("kf"):
+        try:
+            kf_bytes = crypto.b64u_decode(str(obj["kf"]))
+        except Exception as exc:
+            raise SyncError("互补二维码中的本机密钥损坏") from exc
+    return {
+        "bundle_id": str(obj["id"]).upper(),
+        "transfer_key": transfer_key,
+        "vault_name": str(obj.get("n") or "导入的密码库"),
+        "master_password": str(obj["mp"]) if obj.get("mp") else None,
+        "keyfile_bytes": kf_bytes,
+        "recovery_key": str(obj["rk"]) if obj.get("rk") else None,
+    }
+
+
+def unpack_dual_channel(lines: List[str], qr_payload: str) -> Dict[str, Any]:
+    """合并加密文件与互补二维码解包（缺一不可、严格配对）。"""
+    if not lines:
+        raise SyncError("缺少加密同步文件")
+    if not (qr_payload or "").strip():
+        raise SyncError("缺少配套互补二维码")
+
+    qr = parse_dual_qr(qr_payload)
+    parsed: Dict[int, str] = {}
+    total: Optional[int] = None
+    file_bundle_id: Optional[str] = None
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            head, rest = line.split("-", 1)
+            if head != DUAL_MAGIC:
+                raise ValueError
+            bid, rest2 = rest.split("-", 1)
+            index_part, rest3 = rest2.split("/", 1)
+            total_part, chunk_body = rest3.split("-", 1)
+            idx = int(index_part)
+            tot = int(total_part)
+        except Exception as exc:
+            raise SyncError("双通道同步文件格式不正确") from exc
+        bid = bid.upper()
+        if total is None:
+            total, file_bundle_id = tot, bid
+        elif total != tot or file_bundle_id != bid:
+            raise SyncError("同步文件分片不一致（来自不同导出包）")
+        parsed[idx] = parsed.get(idx, "") + chunk_body
+
+    if total is None or file_bundle_id is None:
+        raise SyncError("加密同步文件中没有有效分片")
+    if file_bundle_id != qr["bundle_id"]:
+        raise SyncError(f"文件与二维码不匹配（文件配对号 {file_bundle_id}，二维码配对号 {qr['bundle_id']}）")
+
+    missing = [i for i in range(1, total + 1) if i not in parsed]
+    if missing:
+        raise MissingChunksError(missing, total)
+
+    encoded = "".join(parsed[i] for i in range(1, total + 1))
+    actual_id = hashlib.sha256(encoded.encode("ascii")).hexdigest()[:12].upper()
+    if actual_id != qr["bundle_id"]:
+        raise SyncChecksumError("同步文件完整性校验失败：文件可能被修改")
+
+    try:
+        body = crypto.json_loads(crypto.b64u_decode(encoded))
+        compressed = crypto.decrypt(qr["transfer_key"], body["blob"], aad=DUAL_MAGIC.encode("ascii"))
+        plain = zlib.decompress(compressed)
+    except crypto.TamperError as exc:
+        raise SyncError("解密失败：密钥不匹配或文件被篡改") from exc
+    except Exception as exc:
+        raise SyncError(f"同步数据无法解析：{exc}") from exc
+
+    if hashlib.sha256(plain).hexdigest() != body.get("checksum"):
+        raise SyncChecksumError("校验和不匹配：数据不完整或被修改")
+
+    data = crypto.json_loads(plain)
+    data["credentials"] = [Credential.from_dict(c) for c in data.get("credentials", [])]
+    data["vault_name"] = data.get("vault_name") or qr["vault_name"]
+    data["master_password"] = qr["master_password"]
+    data["keyfile_bytes"] = qr["keyfile_bytes"]
+    data["recovery_key"] = qr["recovery_key"]
+    data["bundle_id"] = file_bundle_id
+    return data
+
+
+def unpack_dual_channel_file(path: str, qr_payload: str) -> Dict[str, Any]:
+    return unpack_dual_channel(load_lines(path), qr_payload)
+
+
+# ------------------------------------------------------------------ 旧版 PM1 只读兼容导入
+
+def _sync_key(passphrase: str, salt: bytes) -> bytes:
+    return crypto.derive_kek(passphrase, salt, SYNC_KDF)
 
 
 def unpack(lines: List[str], passphrase: str) -> Dict[str, Any]:
-    """从若干片同步字符串还原。缺片/口令错/被改都会明确报错。"""
+    """兼容导入旧版 PM1 口令同步文件/分片字符串（只读兼容，不再提供旧版导出）。"""
     parsed: Dict[int, str] = {}
     total: Optional[int] = None
-    version: Optional[int] = None
     for raw in lines:
         line = raw.strip()
-        if not line or line.startswith("#"):   # 空行与说明行（导出文件里的头部）跳过
+        if not line or line.startswith("#"):
             continue
         try:
             head, chunk = line.split("-", 1)
-            if head != MAGIC:
+            if head != LEGACY_MAGIC:
                 raise ValueError
-            ver, rest = chunk.split("-", 1)
+            _ver, rest = chunk.split("-", 1)
             index_part, rest2 = rest.split("/", 1)
             total_part, chunk_body = rest2.split("-", 1)
             idx = int(index_part)
             tot = int(total_part)
         except Exception as exc:
-            raise SyncError("同步字符串格式不正确（应形如 PM1-3-01/03-xxxx）") from exc
+            raise SyncError("旧版同步字符串格式不正确（应形如 PM1-3-01/03-xxxx）") from exc
         if total is None:
-            total, version = tot, int(ver)
+            total = tot
         elif total != tot:
             raise SyncError("分片来自不同的同步包（总片数不一致）")
         parsed[idx] = parsed.get(idx, "") + chunk_body
@@ -102,7 +289,7 @@ def unpack(lines: List[str], passphrase: str) -> Dict[str, Any]:
     try:
         body = crypto.json_loads(crypto.b64u_decode(encoded))
         key = _sync_key(passphrase, crypto.b64d(body["salt"]))
-        compressed = crypto.decrypt(key, body["blob"], aad=MAGIC.encode())
+        compressed = crypto.decrypt(key, body["blob"], aad=LEGACY_MAGIC.encode())
         plain = zlib.decompress(compressed)
     except crypto.TamperError as exc:
         raise SyncError("同步口令错误或数据被篡改") from exc
@@ -114,11 +301,20 @@ def unpack(lines: List[str], passphrase: str) -> Dict[str, Any]:
 
     data = crypto.json_loads(plain)
     data["credentials"] = [Credential.from_dict(c) for c in data.get("credentials", [])]
+    data["legacy_pm1"] = True
     return data
 
 
+def load_lines(path: str) -> List[str]:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read().splitlines()
+
+
+def unpack_file(path: str, passphrase: str) -> Dict[str, Any]:
+    return unpack(load_lines(path), passphrase)
+
+
 def resolve_conflict(local_revision: int, remote_revision: int, local_device: str, remote_device: str) -> str:
-    """返回 'push' | 'pull' | 'conflict'。"""
     if remote_revision == local_revision and remote_device == local_device:
         return "none"
     if remote_revision > local_revision:
@@ -128,78 +324,11 @@ def resolve_conflict(local_revision: int, remote_revision: int, local_device: st
     return "conflict" if local_device != remote_device else "none"
 
 
-def estimate(credential_count: int) -> Dict[str, int]:
-    """粗略估算分片数量（用于界面提示）。"""
-    approx_bytes = 260 * max(credential_count, 1)
-    approx_encoded = int(approx_bytes * 0.6) + 200
-    return {"bytes": approx_bytes, "chunks": max(1, (approx_encoded + CHUNK_CHARS - 1) // CHUNK_CHARS)}
-
-
-# ------------------------------------------------------------------ 文件导出 / 导入
-#
-# 文件格式（UTF-8，行尾 \n）：
-#   # 若干行说明（unpack 会跳过 # 开头与空行）
-#   PM1-<版本>-01/NN-<密文>
-#   PM1-<版本>-02/NN-<密文>
-#   ...
-# 刻意与"字符串"同构：字符串可以直接另存为文件，文件也能整篇粘回字符串框。
-
-def header_lines(revision: int, device: str, credential_count: int, chunks: int) -> List[str]:
-    return [
-        "# PMVault 加密同步文件",
-        f"# 本机版本 v{revision} · 条目 {credential_count} 条 · 分片 {chunks} 片",
-        f"# 导出设备 {device or '(未知)'} · 导出于 {datetime.datetime.now():%Y-%m-%d %H:%M}",
-        "#",
-        "# 整篇都是密文：没有「同步口令」谁也解不开（连本程序也解不开）。",
-        "# 导入方法：在另一台设备打开「加密同步 → 从文件导入」，选这个文件并输入同一个同步口令。",
-        "# 口令一旦忘记，这个文件就永远打不开了——请与口令分开妥善保管。",
-        "",
-    ]
-
-
-def export_text(credentials: List[Credential], passphrase: str, revision: int, device: str,
-                chunk_chars: int = CHUNK_CHARS) -> str:
-    """整包导出为可直接写文件的文本（说明行 + 分片行）。"""
-    lines = pack(credentials, passphrase, revision, device, chunk_chars)
-    head = header_lines(int(revision), device, len(credentials), len(lines))
-    return "\n".join(head + lines) + "\n"
-
-
-def save_to_file(path: str, credentials: List[Credential], passphrase: str,
-                 revision: int, device: str, chunk_chars: int = CHUNK_CHARS) -> str:
-    """导出到文件，返回实际写入的绝对路径。父目录不存在时自动创建。"""
-    path = os.path.abspath(path)
-    parent = os.path.dirname(path)
-    if parent and not os.path.isdir(parent):
-        os.makedirs(parent, exist_ok=True)
-    text = export_text(credentials, passphrase, revision, device, chunk_chars)
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-    return path
-
-
-def load_lines(path: str) -> List[str]:
-    """读入导出文件的所有行（含说明行；unpack 会自行跳过）。"""
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        return fh.read().splitlines()
-
-
-def unpack_file(path: str, passphrase: str) -> Dict[str, Any]:
-    """直接从文件还原。"""
-    return unpack(load_lines(path), passphrase)
-
-
-def default_filename(revision: int, device: str = "") -> str:
-    """给「另存为」对话框用的默认文件名。"""
-    tag = "".join(ch for ch in (device or "") if ch.isalnum())[:8]
+def default_filename(revision: int, device: str = "", vault_name: str = "") -> str:
+    tag = "".join(ch for ch in (vault_name or device or "") if ch.isalnum())[:12]
     stamp = datetime.datetime.now().strftime("%Y%m%d")
     parts = ["pmvault-sync", f"v{int(revision)}"]
     if tag:
         parts.append(tag)
     parts.append(stamp)
     return "-".join(parts) + FILE_SUFFIX
-
-
-def looks_like_sync_file(text: str) -> bool:
-    """粗判一段文本是不是同步包（用于导入前给出更友好的提示）。"""
-    return any(line.strip().startswith(MAGIC + "-") for line in text.splitlines()[:200])

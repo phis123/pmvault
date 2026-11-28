@@ -137,17 +137,11 @@ def main() -> int:
 
     # ---------------------------------------------------------------- 默认设置
     print("\n【5】两端默认设置与持久化")
-    from pm_android import state as android_state  # noqa: E402
+    from pm_core import settings as core_settings  # noqa: E402
 
-    d = android_state.DEFAULT_SETTINGS
-    check("安卓 DEFAULT_SETTINGS 含 sort_key", d.get("sort_key") == sorting.DEFAULT_SORT_KEY)
-    check("安卓 DEFAULT_SETTINGS 含 sort_desc", d.get("sort_desc") is sorting.DEFAULT_SORT_DESC)
-
-    from pm_ui import settings as ui_settings  # noqa: E402
-
-    ud = ui_settings.DEFAULT_SETTINGS
-    check("桌面 DEFAULT_SETTINGS 含 sort_key", ud.get("sort_key") == "created")
-    check("桌面 DEFAULT_SETTINGS 含 sort_desc", ud.get("sort_desc") is False)
+    d = core_settings.DEFAULT_SETTINGS
+    check("统一 DEFAULT_SETTINGS 含 sort_key", d.get("sort_key") == sorting.DEFAULT_SORT_KEY)
+    check("统一 DEFAULT_SETTINGS 含 sort_desc", d.get("sort_desc") is sorting.DEFAULT_SORT_DESC)
 
     check("pm_core 导出 sorting", hasattr(pm_core, "sorting") and "sorting" in pm_core.__all__)
 
@@ -178,6 +172,11 @@ def main() -> int:
         return 1
     print("排序功能验证全部通过")
     return 0
+
+
+def test_sorting_all() -> None:
+    FAIL.clear()
+    assert main() == 0
 
 
 if __name__ == "__main__":
