@@ -123,8 +123,47 @@ def pill(text: str, color: str, bgcolor: str, size: int = 11) -> ft.Container:
 
 def section_title(text: str, pal: Palette, icon: Optional[str] = None, trailing: Optional[ft.Control] = None) -> ft.Row:
     left = [ft.Icon(icon, size=16, color=pal.primary)] if icon else []
-    left.append(ft.Text(text, size=13, weight=ft.FontWeight.W_600, color=pal.text_muted))
-    controls = [ft.Row(left, spacing=6, tight=True)]
+    left.append(ft.Text(text, size=13, weight=ft.FontWeight.W_600, color=pal.text_muted, expand=True))
+    controls = [ft.Row(left, spacing=6, expand=True)]
     if trailing is not None:
         controls.append(trailing)
     return ft.Row(controls, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+
+def wrap_checkbox(
+    label: str,
+    *,
+    value: bool = False,
+    on_change=None,
+    disabled: bool = False,
+    pal: Optional[Palette] = None,
+):
+    """支持长文本自动换行的复选框（解决 Flet Checkbox 默认单行截断问题）。返回 (checkbox, row_control)。"""
+    cb = ft.Checkbox(value=value, on_change=on_change, disabled=disabled)
+
+    def _tap(e) -> None:
+        if cb.disabled:
+            return
+        cb.value = not bool(cb.value)
+        if on_change is not None:
+            on_change(e)
+        if cb.page:
+            cb.page.update()
+
+    text_color = None
+    if pal is not None:
+        text_color = pal.text_faint if disabled else pal.text
+
+    row = ft.Row(
+        [
+            cb,
+            ft.Container(
+                content=ft.Text(label, size=13, color=text_color),
+                expand=True,
+                on_click=_tap,
+            ),
+        ],
+        spacing=4,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+    return cb, row

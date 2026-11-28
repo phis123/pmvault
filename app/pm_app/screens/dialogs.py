@@ -9,7 +9,7 @@ import flet as ft
 
 from pm_core import Credential, Vault, crypto, generator, qr, sync
 from ..state import AppState
-from ..theme import MONO_FONT, Palette, card, pill
+from ..theme import MONO_FONT, Palette, card, pill, wrap_checkbox
 
 
 def show_dlg(page: ft.Page, dlg: ft.AlertDialog) -> None:
@@ -177,15 +177,17 @@ def open_dual_export_dialog(state: AppState) -> None:
         return
     pal = state.palette()
 
-    cb_keyfile = ft.Checkbox(
-        label="二维码中附带本机密钥（方便目标设备一步绑定）",
+    cb_keyfile, cb_keyfile_row = wrap_checkbox(
+        "二维码中附带本机密钥（方便目标设备一步绑定）",
         value=bool(vault.header.keyfile_required and state.active_keyfile_bytes),
         disabled=not bool(vault.header.keyfile_required and state.active_keyfile_bytes),
+        pal=pal,
     )
-    cb_recovery = ft.Checkbox(
-        label="二维码中附带当前一次性恢复码（仅当面扫码，切勿截图外传）",
+    cb_recovery, cb_recovery_row = wrap_checkbox(
+        "二维码中附带当前一次性恢复码（仅当面扫码，切勿截图外传）",
         value=bool(vault.last_recovery_key),
         disabled=not bool(vault.last_recovery_key),
+        pal=pal,
     )
     mp_input = ft.TextField(
         label="可选：在二维码中附带登录主密码（留空则不附带）",
@@ -261,8 +263,8 @@ def open_dual_export_dialog(state: AppState) -> None:
                         color=pal.text_muted,
                     ),
                     path_field,
-                    cb_keyfile,
-                    cb_recovery,
+                    cb_keyfile_row,
+                    cb_recovery_row,
                     mp_input,
                     ft.FilledButton("生成加密文件与互补二维码", icon=ft.Icons.QR_CODE_2, on_click=_generate),
                     status_txt,
@@ -579,7 +581,7 @@ def open_change_master_dialog(state: AppState, *, on_show_new_recovery: Callable
     old_pw = ft.TextField(label="原主密码", password=True, can_reveal_password=True, dense=True)
     new_pw = ft.TextField(label="新主密码", password=True, can_reveal_password=True, dense=True)
     cfm_pw = ft.TextField(label="确认新主密码", password=True, can_reveal_password=True, dense=True)
-    use_kf = ft.Checkbox(label="启用本机密钥文件防离线穷举", value=vault.header.keyfile_required)
+    use_kf, use_kf_row = wrap_checkbox("启用本机密钥文件防离线穷举", value=vault.header.keyfile_required, pal=pal)
     err = ft.Text("", size=12, color=pal.danger)
 
     def _submit(_e) -> None:
@@ -622,7 +624,7 @@ def open_change_master_dialog(state: AppState, *, on_show_new_recovery: Callable
         title=ft.Text("修改主密码与本机密钥", weight=ft.FontWeight.W_600),
         content=ft.Container(
             width=400,
-            content=ft.Column([old_pw, new_pw, cfm_pw, use_kf, err], spacing=10, tight=True),
+            content=ft.Column([old_pw, new_pw, cfm_pw, use_kf_row, err], spacing=10, tight=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         ),
         actions=[
             ft.TextButton("取消", on_click=lambda _e: close_dlg(page, dlg)),

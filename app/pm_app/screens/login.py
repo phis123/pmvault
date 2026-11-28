@@ -15,7 +15,7 @@ from pm_core import (
     crypto,
 )
 from ..state import APP_TITLE, AppState
-from ..theme import card, pill
+from ..theme import card, pill, wrap_checkbox
 from .dialogs import close_dlg, open_import_dialog, show_dlg
 
 
@@ -98,7 +98,7 @@ class LoginScreen:
         name_tf = ft.TextField(label="密码库名称", value="我的密码库", dense=True)
         pw_tf = ft.TextField(label="设置主密码", password=True, can_reveal_password=True, dense=True)
         cfm_tf = ft.TextField(label="确认主密码", password=True, can_reveal_password=True, dense=True)
-        use_kf = ft.Checkbox(label="启用本机密钥文件（推荐：好记短密码也能抗离线穷举）", value=True)
+        use_kf, use_kf_row = wrap_checkbox("启用本机密钥文件（推荐：好记短密码也能抗离线穷举）", value=True, pal=pal)
         err = ft.Text("", size=12, color=pal.danger)
 
         def _create(_e=None) -> None:
@@ -136,7 +136,7 @@ class LoginScreen:
                     name_tf,
                     pw_tf,
                     cfm_tf,
-                    use_kf,
+                    use_kf_row,
                     err,
                     ft.FilledButton("创建并生成一次性恢复码", icon=ft.Icons.ADD_MODERATOR, on_click=_create, height=46),
                     ft.Row(
@@ -351,7 +351,7 @@ class LoginScreen:
         name_tf = ft.TextField(label="新密码库名称", hint_text="如：工作库、个人日常库", dense=True)
         pw_tf = ft.TextField(label="主密码", password=True, can_reveal_password=True, dense=True)
         cfm_tf = ft.TextField(label="确认主密码", password=True, can_reveal_password=True, dense=True)
-        use_kf = ft.Checkbox(label="启用本机密钥文件防离线穷举（推荐）", value=True)
+        use_kf, use_kf_row = wrap_checkbox("启用本机密钥文件防离线穷举（推荐）", value=True, pal=pal)
         err = ft.Text("", size=12, color=pal.danger)
 
         def _submit(_e=None) -> None:
@@ -386,7 +386,7 @@ class LoginScreen:
             title=ft.Text("新建独立密码库", weight=ft.FontWeight.W_600),
             content=ft.Container(
                 width=400,
-                content=ft.Column([name_tf, pw_tf, cfm_tf, use_kf, err], spacing=10, tight=True),
+                content=ft.Column([name_tf, pw_tf, cfm_tf, use_kf_row, err], spacing=10, tight=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             ),
             actions=[
                 ft.TextButton("取消", on_click=lambda _e: close_dlg(page, dlg)),

@@ -12,7 +12,7 @@ import flet as ft
 
 from pm_core import crypto
 from ..state import AppState
-from ..theme import MONO_FONT, card, pill
+from ..theme import MONO_FONT, card, pill, wrap_checkbox
 from .dialogs import build_qr_widget
 
 
@@ -38,7 +38,6 @@ class RecoveryDisplayScreen:
 
     def build(self) -> ft.Control:
         pal = self.state.palette()
-        confirm_cb = ft.Checkbox(label="我已将此一次性恢复码手抄在纸上或妥善存放在安全位置", value=False)
         proceed_btn = ft.FilledButton(
             "进入密码库",
             icon=ft.Icons.ARROW_FORWARD,
@@ -52,7 +51,12 @@ class RecoveryDisplayScreen:
             if self.state.page:
                 self.state.page.update()
 
-        confirm_cb.on_change = _toggle
+        confirm_cb, confirm_row = wrap_checkbox(
+            "我已将此一次性恢复码手抄在纸上或妥善存放在安全位置",
+            value=False,
+            on_change=_toggle,
+            pal=pal,
+        )
 
         warn_banner = card(
             ft.Row(
@@ -106,7 +110,7 @@ class RecoveryDisplayScreen:
         )
 
         body_controls: list[ft.Control] = [
-            ft.Row([ft.Icon(ft.Icons.VERIFIED_USER, color=pal.primary, size=28), ft.Text(self.title, size=20, weight=ft.FontWeight.BOLD, color=pal.text)], spacing=10),
+            ft.Row([ft.Icon(ft.Icons.VERIFIED_USER, color=pal.primary, size=28), ft.Text(self.title, size=20, weight=ft.FontWeight.BOLD, color=pal.text, expand=True)], spacing=10),
             ft.Text(self.subtitle, size=13, color=pal.text_muted),
             warn_banner,
             code_box,
@@ -126,7 +130,7 @@ class RecoveryDisplayScreen:
                     bgcolor=pal.surface_alt,
                 )
             )
-        body_controls.extend([confirm_cb, ft.Row([proceed_btn], alignment=ft.MainAxisAlignment.END)])
+        body_controls.extend([confirm_row, ft.Row([proceed_btn], alignment=ft.MainAxisAlignment.END)])
 
         return ft.SafeArea(
             expand=True,
@@ -169,9 +173,10 @@ class MandatoryResetScreen:
 
         new_pw = ft.TextField(label="设置新的主密码", password=True, can_reveal_password=True, autofocus=True)
         cfm_pw = ft.TextField(label="再次确认新主密码", password=True, can_reveal_password=True)
-        use_kf = ft.Checkbox(
-            label="同时生成/更新本机密钥文件（推荐：允许好记短密码且抗离线穷举）",
+        use_kf, use_kf_row = wrap_checkbox(
+            "同时生成/更新本机密钥文件（推荐：允许好记短密码且抗离线穷举）",
             value=True,
+            pal=pal,
         )
         err_txt = ft.Text("", size=12, color=pal.danger)
 
@@ -219,7 +224,7 @@ class MandatoryResetScreen:
                             content=card(
                                 ft.Column(
                                     [
-                                        pill("一次性兜底登入", pal.warning, pal.warning_soft),
+                                        ft.Row([pill("一次性兜底登入", pal.warning, pal.warning_soft)]),
                                         ft.Text("请立即重设主密码", size=22, weight=ft.FontWeight.BOLD, color=pal.text),
                                         ft.Text(
                                             "您刚使用一次性恢复码解开了密码库。为了保证安全，必须先重设主密码；完成后旧恢复码将立即作废，并自动为您生成全新的一次性恢复码。",
@@ -228,7 +233,7 @@ class MandatoryResetScreen:
                                         ),
                                         new_pw,
                                         cfm_pw,
-                                        use_kf,
+                                        use_kf_row,
                                         err_txt,
                                         ft.Row(
                                             [
@@ -272,9 +277,10 @@ class V1UpgradeScreen:
         vault = self.state.vault
         assert vault is not None
 
-        use_kf = ft.Checkbox(
-            label="升级时一并启用本机密钥文件（推荐：物理隔离存放，防止加密库泄露后被离线穷举）",
+        use_kf, use_kf_row = wrap_checkbox(
+            "升级时一并启用本机密钥文件（推荐：物理隔离存放，防止加密库泄露后被离线穷举）",
             value=False,
+            pal=pal,
         )
         vname_tf = ft.TextField(label="密码库名称", value=vault.header.vault_name or "默认密码库", dense=True)
         err_txt = ft.Text("", size=12, color=pal.danger)
@@ -314,7 +320,7 @@ class V1UpgradeScreen:
                             content=card(
                                 ft.Column(
                                     [
-                                        pill("旧版密码库升级", pal.primary, pal.primary_soft),
+                                        ft.Row([pill("旧版密码库升级", pal.primary, pal.primary_soft)]),
                                         ft.Text("检测到旧版（v1）密码库", size=22, weight=ft.FontWeight.BOLD, color=pal.text),
                                         ft.Text(
                                             f"已成功解开 {len(vault.active_credentials())} 条账号数据。继续后将自动转换为新版格式（原文件会自动保留一份 .v1.bak 备份），并为您重新生成全新的一次性恢复码。",
@@ -322,7 +328,7 @@ class V1UpgradeScreen:
                                             color=pal.text_muted,
                                         ),
                                         vname_tf,
-                                        use_kf,
+                                        use_kf_row,
                                         err_txt,
                                         ft.Row(
                                             [
