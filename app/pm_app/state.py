@@ -27,24 +27,40 @@ APP_TITLE = "PMVault"
 
 def resolve_data_dir() -> str:
     """确定数据目录：
-    - Android：FLET_APP_STORAGE_DATA
-    - 冻结 Windows exe：exe 所在目录下的 data/（保持与现有 E:\\账号密码管理\\data\\ 兼容）
-    - 开发运行：仓库根下的 data_dev/（避免误碰用户真实 data/）
+    - 环境变量 PMVAULT_DATA_DIR：最高优先（测试/便携覆写）
+    - Windows 打包版（pmvault.exe / 同级存在 flutter_windows.dll 或 data/vault.pmvault）：
+      优先使用 exe 同级 data/（无缝兼容并自动升级旧版 E:\\账号密码管理\\data\\vault.pmvault）
+    - Android / Flet 移动端：FLET_APP_STORAGE_DATA
+    - 开发运行：仓库根下的 data_dev/
     """
     env_override = os.environ.get("PMVAULT_DATA_DIR")
     if env_override:
         os.makedirs(env_override, exist_ok=True)
         return os.path.abspath(env_override)
+
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    exe_name = os.path.basename(sys.executable).lower()
+    is_win_packaged = os.name == "nt" and (
+        getattr(sys, "frozen", False)
+        or exe_name in ("pmvault.exe", "pmvaulttk.exe")
+        or os.path.exists(os.path.join(exe_dir, "flutter_windows.dll"))
+    )
+    if is_win_packaged:
+        path = os.path.join(exe_dir, "data")
+        os.makedirs(path, exist_ok=True)
+        return os.path.abspath(path)
+
+    cwd_vault = os.path.join(os.getcwd(), "data", "vault.pmvault")
+    if os.name == "nt" and os.path.exists(cwd_vault):
+        return os.path.abspath(os.path.join(os.getcwd(), "data"))
+
     flet_storage = os.environ.get("FLET_APP_STORAGE_DATA")
     if flet_storage:
         os.makedirs(flet_storage, exist_ok=True)
         return os.path.abspath(flet_storage)
-    if getattr(sys, "frozen", False):
-        base = os.path.dirname(os.path.abspath(sys.executable))
-        path = os.path.join(base, "data")
-    else:
-        app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        path = os.path.join(app_root, "data_dev")
+
+    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(app_root, "data_dev")
     os.makedirs(path, exist_ok=True)
     return os.path.abspath(path)
 

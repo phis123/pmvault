@@ -24,7 +24,8 @@
 #define AppURL "https://github.com/phis123/pmvault"
 
 [Setup]
-AppId={{8F3C2A54-9B71-4D2E-A6C8-5E1F7B0D3A92}
+; 必须保留末尾双右大括号 }}，与本机已装 1.0.4 注册表项 {8F3C2A54-9B71-4D2E-A6C8-5E1F7B0D3A92}}_is1 完全一致
+AppId={{8F3C2A54-9B71-4D2E-A6C8-5E1F7B0D3A92}}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
@@ -50,6 +51,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[InstallDelete]
+; 覆盖旧版 1.0.4 时清理旧 Tkinter 运行时文件，绝不触碰 data\ 下的任何用户密码库
+Type: files; Name: "{app}\PMVaultTk.exe"
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
